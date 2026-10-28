@@ -258,6 +258,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     const W = c.wp, WP = !!W;
     const ventilVorlauf = WP && W.ventil_position === 'vorlauf';
     const ruecklaufGetrennt = ventilVorlauf && W.ruecklauf_anbindung === 'getrennt';
+    const y_valve = ventilVorlauf ? (y_ru + y_m) / 2 : y_m;
     const wp = W ? NUM(W.leistung) : 0;
     const wp_sperre = W && W.sperre ? ON(W.sperre) : false;
     const wp_abtau = W && W.abtauen ? ON(W.abtauen) : false;
@@ -433,8 +434,9 @@ class WarmwasserSchemaCard extends HTMLElement {
       // Separate tanks need the fresh-water return on the hot-water tank,
       // while shared tanks retain the bottom connection.
       const fmRuecklaufY = y_bo - 14;
+      const fmRadius = Math.min(8, Math.max(0, (fmRuecklaufY - 98) / 2));
       const fmRuecklauf = SPLIT
-        ? `M336 90H323Q315 90 315 98V${fmRuecklaufY}H206`
+        ? `M336 90H323Q315 90 315 98V${fmRuecklaufY - fmRadius}Q315 ${fmRuecklaufY} ${315 - fmRadius} ${fmRuecklaufY}H206`
         : 'M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376';
       o += rohr(fmRuecklauf, F.kalt, fm_on);
     }
@@ -450,12 +452,12 @@ class WarmwasserSchemaCard extends HTMLElement {
       if (!ruecklaufGetrennt) o += rohr(`M310 ${yReturn}H326`, CK, wp_on);
       // The upper supply crosses the fresh-water and tank return pipes.
       const fmY = y_bo - 14;
-      const topCrossings = [...(FM && SPLIT ? [fmY] : []), y_bo].filter(y => y > y_ro + 8 && y < y_m - 18).sort((a, b) => a - b);
-      const topPath = `M206 ${y_ro}H242Q250 ${y_ro} 250 ${y_ro + 8}` + topCrossings.map(y => `V${y - 4}A4 4 0 0 1 250 ${y + 4}`).join('') + `V${y_m - 22}Q250 ${y_m - 14} 258 ${y_m - 14}H262`;
+      const topCrossings = [...(FM && SPLIT ? [fmY] : []), y_bo].filter(y => y > y_ro + 8 && y < y_valve - 18).sort((a, b) => a - b);
+      const topPath = `M206 ${y_ro}H242Q250 ${y_ro} 250 ${y_ro + 8}` + topCrossings.map(y => `V${y - 4}A4 4 0 0 1 250 ${y + 4}`).join('') + `V${y_valve - 22}Q250 ${y_valve - 14} 258 ${y_valve - 14}H262`;
       o += rohr(topPath, CW, wpO, tO);
-      o += rohr(`M206 ${y_ru}H216V${y_m + 6}Q216 ${y_m + 14} 224 ${y_m + 14}H262`, CW, wpU, tU);
+      o += rohr(`M206 ${y_ru}H216V${y_valve + 6}Q216 ${y_valve + 14} 224 ${y_valve + 14}H262`, CW, wpU, tU);
       // The supply bridge crosses the blue return without joining it.
-      o += rohr(`M277 ${y_m}H305A5 5 0 0 1 315 ${y_m}H318V178Q318 170 326 170`, CW, wp_on);
+      o += rohr(`M277 ${y_valve}H305A5 5 0 0 1 315 ${y_valve}H318V178Q318 170 326 170`, CW, wp_on);
       if (HK && !separaterHeizkreis) o += rohr(`M216 ${y_ru}H242A8 8 0 0 1 258 ${y_ru}H295`, CW, hk_fl > 0.04);
     } else if (WP) {
       o += rohr(`M206 ${y_bo}H252Q262 ${y_bo} 262 ${y_bo + 10}V${y_m - 14}`, CK, wpO, tO);
@@ -470,8 +472,8 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
     if (QS) {
       const qon = wp_on || (W.quelle_pumpe ? ON(W.quelle_pumpe) : false);
-      if (QT === 'sole') o += rohr('M400 372V381A9 9 0 0 1 400 399V540Q400 552 415 552Q430 552 430 540V399A9 9 0 0 1 430 381V372', F.quelle, qon);
-      else o += rohr('M400 535V399A9 9 0 0 0 400 381V372', F.quelle, qon) + rohr('M430 372V381A9 9 0 0 1 430 399V535', F.quelle, qon);
+      if (QT === 'sole') o += rohr(SPLIT ? 'M400 372V540Q400 552 415 552Q430 552 430 540V372' : 'M400 372V381A9 9 0 0 1 400 399V540Q400 552 415 552Q430 552 430 540V399A9 9 0 0 1 430 381V372', F.quelle, qon);
+      else o += SPLIT ? rohr('M400 535V372', F.quelle, qon) + rohr('M430 372V535', F.quelle, qon) : rohr('M400 535V399A9 9 0 0 0 400 381V372', F.quelle, qon) + rohr('M430 372V381A9 9 0 0 1 430 399V535', F.quelle, qon);
     }
     const TWc = c.trinkwasser;
     if (TW) {
@@ -572,7 +574,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
 
     /* Umschaltventil WP + T-Stücke */
-    if (WP) o += W.ventil ? `<g${more(W.ventil)}>${mischer(262, y_m, ventilVorlauf ? CW : CK, vb, CW, ventilVorlauf ? CW : CK)}</g>` : mischer(262, y_m, ventilVorlauf ? CW : CK);
+    if (WP) o += W.ventil ? `<g${more(W.ventil)}>${mischer(262, y_valve, ventilVorlauf ? CW : CK, vb, CW, ventilVorlauf ? CW : CK)}</g>` : mischer(262, y_valve, ventilVorlauf ? CW : CK);
     if (ventilVorlauf && !ruecklaufGetrennt) o += tee(310, y_m + 26);
     if (HK && WP && !separaterHeizkreis) o += tee(295, y_ru) + tee(240, y_bu) + (ventilVorlauf ? tee(216, y_ru) : '');
     if (TW && ZK) o += tee(tk, -6) + tee(tw, -6);

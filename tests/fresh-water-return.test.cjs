@@ -18,7 +18,8 @@ test('separate tanks return the fresh-water module to the hot-water tank', () =>
   for (const split of [35, 50, 70]) {
     const svg = render('getrennt', split);
     const returnY = 40 + 310 * split / 100 - 32 - 14;
-    assert.ok(svg.includes(`M336 90H323Q315 90 315 98V${returnY}H206`));
+    const radius = Math.min(8, Math.max(0, (returnY - 98) / 2));
+    assert.ok(svg.includes(`M336 90H323Q315 90 315 98V${returnY - radius}Q315 ${returnY} ${315 - radius} ${returnY}H206`));
     assert.ok(svg.includes('<rect x="332" y="84" width="10" height="12"'));
     assert.ok(!svg.includes('<rect x="448" y="84" width="10" height="12"'));
     assert.ok(!svg.includes('H145Q137 390 137 382V376'));
@@ -54,11 +55,12 @@ test('supply valve renders combined or separate returns without changing the def
   assert.ok(separate.includes('M206 340H312Q320'));
   assert.ok(!separate.includes('M310 308.5H326'));
   assert.ok(legacy.includes('M277 282.5H326'));
-  assert.ok(combined.includes('M400 372V381A9 9'));
-  assert.ok(combined.includes('H305A5 5 0 0 1 315 282.5'));
+  assert.ok(combined.includes('M400 372V540Q400 552'));
+  assert.ok(!combined.includes('M400 372V381A9 9'));
+  assert.ok(combined.includes('H305A5 5 0 0 1 315 254.75'));
   assert.ok(combined.includes('H318V178Q318 170 326 170'));
   const animated = (svg, path) => svg.includes(`d="${path}" class="w3"`);
-  const bufferPath = 'M206 227H216V288.5Q216 296.5 224 296.5H262';
+  const bufferPath = 'M206 227H216V260.75Q216 268.75 224 268.75H262';
   assert.equal(animated(make('vorlauf', 'gemeinsam', 'Puffer'), bufferPath), true);
   assert.equal(animated(combined, bufferPath), false);
   assert.equal(animated(make('vorlauf', 'gemeinsam', 'unknown'), bufferPath), true);
