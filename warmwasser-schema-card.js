@@ -425,7 +425,13 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* ---------- Rohre ---------- */
     if (FM) {
       o += rohr('M206 46H336', F.warm, fm_on);
-      o += rohr('M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376', F.kalt, fm_on);
+      // Separate tanks need the fresh-water return on the hot-water tank,
+      // while shared tanks retain the bottom connection.
+      const fmRuecklaufY = y_bo - 14;
+      const fmRuecklauf = SPLIT
+        ? `M452 90H458Q466 90 466 98V120H315V${fmRuecklaufY}H206`
+        : 'M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376';
+      o += rohr(fmRuecklauf, F.kalt, fm_on);
     }
     if (WP) {
       o += rohr(`M206 ${y_bo}H252Q262 ${y_bo} 262 ${y_bo + 10}V${y_m - 14}`, CK, wpO, tO);
@@ -665,7 +671,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
     for (const y of [...(FM ? [46] : []), ...(WP ? [y_ro, y_bo] : []), ...(WP || HK ? [y_ru, y_bu] : [])]) o += stub(198, y - 6, 14, 12);
     if (K) o += stub(62, y_ru - 6, 14, 12) + stub(62, y_bu - 6, 14, 12);
-    if (FM) o += stub(131, 370, 12, 12);
+    if (FM) o += SPLIT ? stub(198, y_bo - 20, 12, 12) : stub(131, 370, 12, 12);
     if (hso) o += stab((y_ro + y_bo) / 2, hso);
     if (hsu) o += stab((y_ru + y_bu) / 2, hsu);
     o += fl.map(pille).join('');
