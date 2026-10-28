@@ -437,7 +437,11 @@ class WarmwasserSchemaCard extends HTMLElement {
       o += rohr(`M206 ${y_bo}H252Q262 ${y_bo} 262 ${y_bo + 10}V${y_m - 14}`, CK, wpO, tO);
       o += rohr(`M206 ${y_bu}H252Q262 ${y_bu} 262 ${y_bu - 10}V${y_m + 14}`, CK, wpU, tU);
       o += rohr(`M277 ${y_m}H326`, CK, wp_on);
-      o += rohr(`M350 146V136Q350 128 342 128H308Q300 128 300 120V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H206`, CW, wpO, tO);
+      // Bridge the fresh-water return where it crosses the hot-water charging pipe.
+      const wwLadung = FM && SPLIT && y_bo - 14 > 128
+        ? 'H323A8 8 0 0 1 307 128'
+        : 'H308';
+      o += rohr(`M350 146V136Q350 128 342 128${wwLadung}Q300 128 300 120V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H206`, CW, wpO, tO);
       o += rohr(`M326 ${y_ru}H270A8 8 0 0 0 254 ${y_ru}H206`, CW, wpU, tU);
       if (QS) {
         const qon = wp_on || (W.quelle_pumpe ? ON(W.quelle_pumpe) : false);
