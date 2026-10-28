@@ -82,6 +82,8 @@ Ein vollständiges, kommentiertes Beispiel liegt in [`examples/beispiel.yaml`](e
 | `vorlauf`, `ruecklauf` | Temperaturen |
 | `waerme`, `wmz`, `cop` | Wärmeleistung, Wärmemengenzähler (kWh), COP |
 | `ventil` | Umschaltventil: `on`/`off`, 0–100 oder Text mit z. B. „Warmwasser“ bzw. „Heizung“. Ohne Angabe werden beide Zonen als geladen gezeigt. |
+| `ventil_position` | `ruecklauf` (Standard, bisherige Darstellung) oder `vorlauf`: Einbauort des Umschaltventils in der Schemazeichnung. |
+| `ruecklauf_anbindung` | Nur bei `ventil_position: vorlauf`: `gemeinsam` (Standard) oder `getrennt` für die Rückläufe der Speicher zur Wärmepumpe. |
 | `kuehlen` | Kühlbetrieb – die Farben der Heizkreise werden getauscht |
 | `sperre`, `abtauen`, `sg_ready` | EVU-Sperre, Abtauen, SG-Ready |
 | `quelle_ein`, `quelle_aus`, `quelle_pumpe` | Quellentemperaturen und Quellenpumpe |

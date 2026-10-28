@@ -36,3 +36,27 @@ test('a shared tank keeps its original bottom return', () => {
     assert.ok(render(typ).includes('M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376'));
   }
 });
+
+test('supply valve renders combined or separate returns without changing the default', () => {
+  const make = (position, returns, valve) => {
+    const card = new Card();
+    card.setConfig({ speicher: { typ: 'getrennt' }, wp: { typ: 'sole', betrieb: 'binary_sensor.wp', ventil: 'sensor.valve', ventil_position: position, ruecklauf_anbindung: returns }, fm: { pumpe: 'binary_sensor.fm' }, heizkreise: [{ pumpe: 'binary_sensor.hk' }] });
+    card._hass = { language: 'de', states: { 'binary_sensor.wp': { state: 'on' }, 'binary_sensor.fm': { state: 'off' }, 'binary_sensor.hk': { state: 'on' }, 'sensor.valve': { state: valve } } };
+    return card._render();
+  };
+  const combined = make('vorlauf', 'gemeinsam', 'Warmwasser');
+  const separate = make('vorlauf', 'getrennt', 'Puffer');
+  const legacy = make(undefined, undefined, 'Puffer');
+  assert.ok(combined.includes('M310 308.5H326'));
+  assert.ok(!combined.includes('M206 340H312Q320'));
+  assert.ok(separate.includes('M206 340H312Q320'));
+  assert.ok(!separate.includes('M310 308.5H326'));
+  assert.ok(legacy.includes('M277 282.5H326'));
+  assert.ok(combined.includes('M400 372V381A9 9'));
+  assert.ok(combined.includes('H305A5 5 0 0 1 315 282.5'));
+  const animated = (svg, path) => svg.includes(`d="${path}" class="w3"`);
+  const bufferPath = 'M206 227H225V296.5H262';
+  assert.equal(animated(make('vorlauf', 'gemeinsam', 'Puffer'), bufferPath), true);
+  assert.equal(animated(combined, bufferPath), false);
+  assert.equal(animated(make('vorlauf', 'gemeinsam', 'unknown'), bufferPath), true);
+});

@@ -130,6 +130,8 @@ A complete, commented example is in [`beispiel.yaml`](https://github.com/mariofr
 | `vorlauf`, `ruecklauf` | Flow / return temperature |
 | `waerme`, `wmz`, `cop` | Heat output, heat meter (kWh), COP |
 | `ventil` | Diverter valve: `on`/`off`, 0–100, or text containing e.g. “Warmwasser/DHW” or “Heizung/heating”. Without it, both zones are shown as charging. |
+| `ventil_position` | `ruecklauf` (return; default, preserves the previous diagram) or `vorlauf` (supply): location of the diverter valve in the diagram. |
+| `ruecklauf_anbindung` | With `ventil_position: vorlauf`, `gemeinsam` (combined, default) or `getrennt` (separate tank returns to the heat pump). |
 | `kuehlen` | Cooling mode – heating circuit colours are swapped |
 | `sperre`, `abtauen`, `sg_ready` | Grid lock, defrost, SG Ready |
 | `quelle_ein`, `quelle_aus`, `quelle_pumpe` | Source temperatures and source pump |

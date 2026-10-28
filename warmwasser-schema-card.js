@@ -255,6 +255,8 @@ class WarmwasserSchemaCard extends HTMLElement {
 
     /* ---------- Wärmepumpe ---------- */
     const W = c.wp, WP = !!W;
+    const ventilVorlauf = WP && W.ventil_position === 'vorlauf';
+    const ruecklaufGetrennt = ventilVorlauf && W.ruecklauf_anbindung === 'getrennt';
     const wp = W ? NUM(W.leistung) : 0;
     const wp_sperre = W && W.sperre ? ON(W.sperre) : false;
     const wp_abtau = W && W.abtauen ? ON(W.abtauen) : false;
@@ -433,7 +435,26 @@ class WarmwasserSchemaCard extends HTMLElement {
         : 'M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376';
       o += rohr(fmRuecklauf, F.kalt, fm_on);
     }
-    if (WP) {
+    if (WP && ventilVorlauf) {
+      // Supply valve: the two red branches meet at the diverter, while the
+      // blue returns are either combined or drawn separately at the WP.
+      const yReturn = y_m + 26;
+      const ySeparate = y_m + 44;
+      o += rohr(`M206 ${y_bo}H302Q310 ${y_bo} 310 ${y_bo + 8}V${yReturn}${ruecklaufGetrennt ? 'H326' : ''}`, CK, wpO, tO);
+      o += rohr(ruecklaufGetrennt
+        ? `M206 ${y_bu}H312Q320 ${y_bu} 320 ${y_bu - 8}V${ySeparate}H326`
+        : `M206 ${y_bu}H302Q310 ${y_bu} 310 ${y_bu - 8}V${yReturn}`, CK, wpU, tU);
+      if (!ruecklaufGetrennt) o += rohr(`M310 ${yReturn}H326`, CK, wp_on);
+      // The upper supply crosses the fresh-water and tank return pipes.
+      const fmY = y_bo - 14;
+      const topCrossings = [...(FM && SPLIT ? [fmY] : []), y_bo].filter(y => y > y_ro + 8 && y < y_m - 18).sort((a, b) => a - b);
+      const topPath = `M206 ${y_ro}H242Q250 ${y_ro} 250 ${y_ro + 8}` + topCrossings.map(y => `V${y - 4}A4 4 0 0 1 250 ${y + 4}`).join('') + `V${y_m - 22}Q250 ${y_m - 14} 258 ${y_m - 14}H262`;
+      o += rohr(topPath, CW, wpO, tO);
+      o += rohr(`M206 ${y_ru}H225V${y_m + 14}H262`, CW, wpU, tU);
+      // The supply bridge crosses the blue return without joining it.
+      o += rohr(`M277 ${y_m}H305A5 5 0 0 1 315 ${y_m}H325V136Q325 128 333 128H342Q350 128 350 136V146`, CW, wp_on);
+      if (HK) o += rohr(`M225 ${y_ru}H242A8 8 0 0 1 258 ${y_ru}H295`, CW, hk_fl > 0.04);
+    } else if (WP) {
       o += rohr(`M206 ${y_bo}H252Q262 ${y_bo} 262 ${y_bo + 10}V${y_m - 14}`, CK, wpO, tO);
       o += rohr(`M206 ${y_bu}H252Q262 ${y_bu} 262 ${y_bu - 10}V${y_m + 14}`, CK, wpU, tU);
       o += rohr(`M277 ${y_m}H326`, CK, wp_on);
@@ -443,11 +464,11 @@ class WarmwasserSchemaCard extends HTMLElement {
         : 'H308';
       o += rohr(`M350 146V136Q350 128 342 128${wwLadung}Q300 128 300 120V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H206`, CW, wpO, tO);
       o += rohr(`M326 ${y_ru}H270A8 8 0 0 0 254 ${y_ru}H206`, CW, wpU, tU);
-      if (QS) {
-        const qon = wp_on || (W.quelle_pumpe ? ON(W.quelle_pumpe) : false);
-        if (QT === 'sole') o += rohr('M400 372V381A9 9 0 0 1 400 399V540Q400 552 415 552Q430 552 430 540V399A9 9 0 0 1 430 381V372', F.quelle, qon);
-        else o += rohr('M400 535V399A9 9 0 0 0 400 381V372', F.quelle, qon) + rohr('M430 372V381A9 9 0 0 1 430 399V535', F.quelle, qon);
-      }
+    }
+    if (QS) {
+      const qon = wp_on || (W.quelle_pumpe ? ON(W.quelle_pumpe) : false);
+      if (QT === 'sole') o += rohr('M400 372V381A9 9 0 0 1 400 399V540Q400 552 415 552Q430 552 430 540V399A9 9 0 0 1 430 381V372', F.quelle, qon);
+      else o += rohr('M400 535V399A9 9 0 0 0 400 381V372', F.quelle, qon) + rohr('M430 372V381A9 9 0 0 1 430 399V535', F.quelle, qon);
     }
     const TWc = c.trinkwasser;
     if (TW) {
@@ -483,12 +504,12 @@ class WarmwasserSchemaCard extends HTMLElement {
     const y_vv = 420 + dyw, y_rv = 448 + dyw, y_hm = 482 + dyw, y_he = 548 + dyw;
     const bxV = W8 ? 356 : 300, bxR = W8 ? 372 : 317, srcV = W8 ? 356 : 295, srcR = W8 ? 372 : 312;
     if (HK) {
-      if (WP && akt.length && !wp_on) o += `<path d="M206 ${y_ru}H254A8 8 0 0 1 270 ${y_ru}H295M240 ${y_bu}H206" class="w3" style="${td}"/>`;
+      if (WP && !ventilVorlauf && akt.length && !wp_on) o += `<path d="M206 ${y_ru}H254A8 8 0 0 1 270 ${y_ru}H295M240 ${y_bu}H206" class="w3" style="${td}"/>`;
       const tf = 1 / Math.max(hk_fl, 0.04), fl1 = hk_fl > 0.04;
       const jmp = (x) => (FM ? `399A9 9 0 0 0 ${x} 381` : '381');
       const rl1 = W8 ? `M322 462H320Q312 462 312 454V${jmp(312)}` : `M312 ${y_rv}V${jmp(312)}`;
       o += rohr(WP ? `${rl1}V368Q312 360 304 360H248Q240 360 240 352V${y_bu}` : `${rl1}V${y_bu + 8}Q312 ${y_bu} 304 ${y_bu}H206`, CK, fl1, tf);
-      o += rohr((WP ? `M295 ${y_ru}V${y_m - 9}A9 9 0 0 0 295 ${y_m + 9}V351A9 9 0 0 0 295 369`
+      o += rohr((ventilVorlauf ? `M295 ${y_ru}V351A9 9 0 0 0 295 369` : WP ? `M295 ${y_ru}V${y_m - 9}A9 9 0 0 0 295 ${y_m + 9}V351A9 9 0 0 0 295 369`
         : `M206 ${y_ru}H287Q295 ${y_ru} 295 ${y_ru + 8}V${y_bu - 9}A9 9 0 0 0 295 ${y_bu + 9}`) +
         `V${FM ? '381A9 9 0 0 0 295 399' : '399'}` + (W8 ? 'V402Q295 410 303 410H304A8 8 0 0 1 320 410H322' : `V${y_vv}`), CW, fl1, tf);
       if (W8) {
@@ -543,8 +564,9 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
 
     /* Umschaltventil WP + T-Stücke */
-    if (WP) o += W.ventil ? `<g${more(W.ventil)}>${mischer(262, y_m, CK, vb, CW, CK)}</g>` : mischer(262, y_m, CK);
-    if (HK && WP) o += tee(295, y_ru) + tee(240, y_bu);
+    if (WP) o += W.ventil ? `<g${more(W.ventil)}>${mischer(262, y_m, ventilVorlauf ? CW : CK, vb, CW, ventilVorlauf ? CW : CK)}</g>` : mischer(262, y_m, ventilVorlauf ? CW : CK);
+    if (ventilVorlauf && !ruecklaufGetrennt) o += tee(310, y_m + 26);
+    if (HK && WP) o += tee(295, y_ru) + tee(240, y_bu) + (ventilVorlauf ? tee(225, y_ru) : '');
     if (TW && ZK) o += tee(tk, -6) + tee(tw, -6);
 
     /* Wärmemengenzähler */
@@ -727,7 +749,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* ---------- Wärmepumpe ---------- */
     if (WP) {
       o += `<rect x="330" y="150" width="120" height="222" rx="14" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="330" y="150" width="120" height="222" rx="14" fill="url(#wwBox)"/>`;
-      o += stub(344, 142, 12, 10) + stub(322, y_ru - 6, 10, 12) + stub(322, y_m - 6, 10, 12);
+      o += stub(344, 142, 12, 10) + (ventilVorlauf ? stub(322, y_m + 20, 10, 12) + (ruecklaufGetrennt ? stub(322, y_m + 38, 10, 12) : '') : stub(322, y_ru - 6, 10, 12) + stub(322, y_m - 6, 10, 12));
       o += `<text x="342" y="168" font-size="9" class="wt" letter-spacing="2" fill="#fff" opacity=".9">${esc(c.hersteller)}</text>`;
       if (W.cop) o += `<text x="438" y="168" font-size="9" class="we wt wx" data-more="${esc(W.cop)}" fill="#fff">COP ${isNum(S(W.cop)) ? Number(S(W.cop)).toFixed(1) : '–'}</text>`;
       o += `<circle cx="390" cy="226" r="42" fill="#15171b" stroke="#0c0d0f" stroke-width="3"/><circle cx="390" cy="226" r="36" fill="#1d2025"/>`;
@@ -779,7 +801,7 @@ const LBL = {
     zirkulationspumpe: 'Zirkulationspumpe', speicher: 'Speicher', typ: 'Typ', volumen: 'Volumen (l)', volumen_ww: 'Volumen Warmwasser (l)',
     trennung: 'Trennung / Boilerhöhe (%)', wp: 'Wärmepumpe', leistung: 'Leistung', schwelle: 'Schwelle (W)', betrieb: 'Betrieb',
     vorlauf: 'Vorlauf', ruecklauf: 'Rücklauf', waerme: 'Wärmeleistung', cop: 'COP', sperre: 'EVU-Sperre', abtauen: 'Abtauen',
-    kuehlen: 'Kühlbetrieb', sg_ready: 'SG-Ready', ventil: 'Umschaltventil', quelle_ein: 'Quelle ein', quelle_aus: 'Quelle aus',
+    kuehlen: 'Kühlbetrieb', sg_ready: 'SG-Ready', ventil: 'Umschaltventil', ventil_position: 'Umschaltventil im', ruecklauf_anbindung: 'Rückläufe (bei Ventil im Vorlauf)', quelle_ein: 'Quelle ein', quelle_aus: 'Quelle aus',
     quelle_pumpe: 'Quellenpumpe', wmz: 'Wärmemengenzähler (kWh)', heizstab_oben: 'Heizstab oben', heizstab_unten: 'Heizstab unten',
     name: 'Name', stufe: 'Stufe', temp: 'Temperatur', kamin: 'Zusatzwärme', pumpe: 'Pumpe', modus: 'Pumpenmodus (input_select)',
     brenner: 'Brenner / Betrieb', warm: 'Glut ab (°C)', feuer: 'Feuer ab (°C)', trend: 'Trend', abgas: 'Abgastemperatur',
@@ -796,7 +818,7 @@ const LBL = {
     zirkulationspumpe: 'Circulation pump', speicher: 'Storage tank', typ: 'Type', volumen: 'Volume (l)', volumen_ww: 'Hot water volume (l)',
     trennung: 'Separation / boiler height (%)', wp: 'Heat pump', leistung: 'Power', schwelle: 'Threshold (W)', betrieb: 'Running',
     vorlauf: 'Flow', ruecklauf: 'Return', waerme: 'Heat output', cop: 'COP', sperre: 'Grid lock', abtauen: 'Defrost',
-    kuehlen: 'Cooling', sg_ready: 'SG Ready', ventil: 'Diverter valve', quelle_ein: 'Source in', quelle_aus: 'Source out',
+    kuehlen: 'Cooling', sg_ready: 'SG Ready', ventil: 'Diverter valve', ventil_position: 'Diverter valve location', ruecklauf_anbindung: 'Returns (when valve is in supply)', quelle_ein: 'Source in', quelle_aus: 'Source out',
     quelle_pumpe: 'Source pump', wmz: 'Heat meter (kWh)', heizstab_oben: 'Heater top', heizstab_unten: 'Heater bottom',
     name: 'Name', stufe: 'Step', temp: 'Temperature', kamin: 'Additional heat source', pumpe: 'Pump', modus: 'Pump mode (input_select)',
     brenner: 'Burner / running', warm: 'Embers from (°C)', feuer: 'Fire from (°C)', trend: 'Trend', abgas: 'Flue gas temperature',
@@ -813,6 +835,8 @@ const OPT = {
     sprache: [['auto', 'Automatisch'], ['de', 'Deutsch'], ['en', 'English']],
     speicher: [['trennblech', 'Trennblech (2 Kammern)'], ['schicht', 'Schichtspeicher'], ['kombi', 'Kombispeicher (Tank-in-Tank)'], ['hygiene', 'Hygienespeicher (Wellrohr)'], ['getrennt', 'Warmwasser + Puffer getrennt']],
     wp: [['luft', 'Luft'], ['sole', 'Sole / Erdsonde'], ['wasser', 'Wasser / Brunnen']],
+    ventil_position: [['ruecklauf', 'Rücklauf'], ['vorlauf', 'Vorlauf']],
+    ruecklauf_anbindung: [['gemeinsam', 'Gemeinsam'], ['getrennt', 'Getrennt']],
     kamin: [['kamin', 'Kaminofen'], ['holzvergaser', 'Holzvergaser'], ['pellet', 'Pellets'], ['gas', 'Gas'], ['oel', 'Öl'], ['fernwaerme', 'Fernwärme'], ['bhkw', 'BHKW']],
     hk: [['', '–'], ['fussboden', 'Fußbodenheizung'], ['heizkoerper', 'Heizkörper']],
   },
@@ -820,6 +844,8 @@ const OPT = {
     sprache: [['auto', 'Automatic'], ['de', 'Deutsch'], ['en', 'English']],
     speicher: [['trennblech', 'Baffle plate (2 zones)'], ['schicht', 'Stratified tank'], ['kombi', 'Combi tank (tank-in-tank)'], ['hygiene', 'Hygienic tank (coil)'], ['getrennt', 'Separate hot water + buffer']],
     wp: [['luft', 'Air'], ['sole', 'Brine / ground probe'], ['wasser', 'Water / well']],
+    ventil_position: [['ruecklauf', 'Return'], ['vorlauf', 'Supply']],
+    ruecklauf_anbindung: [['gemeinsam', 'Combined'], ['getrennt', 'Separate']],
     kamin: [['kamin', 'Stove'], ['holzvergaser', 'Wood boiler'], ['pellet', 'Pellets'], ['gas', 'Gas'], ['oel', 'Oil'], ['fernwaerme', 'District heating'], ['bhkw', 'CHP']],
     hk: [['', '–'], ['fussboden', 'Floor heating'], ['heizkoerper', 'Radiators']],
   },
@@ -876,7 +902,7 @@ class WarmwasserSchemaCardEditor extends HTMLElement {
       { type: 'grid', name: '', schema: [F_('titel', sel.txt), F_('hersteller', sel.txt), F_('name_wp', sel.txt), F_('name_fm', sel.txt), F_('sprache', sel.opt(O.sprache)), F_('hs_stufen', sel.num(1, 12)), F_('t_min', sel.num(0, 90)), F_('t_max', sel.num(0, 95))] },
       ...E_('aussen', 'pv', 'zirkulationspumpe'),
       { type: 'expandable', name: 'speicher', title: L.speicher, icon: 'mdi:water-boiler', schema: [F_('typ', sel.opt(O.speicher)), { type: 'grid', name: '', schema: [F_('volumen', sel.num(0, 100000)), F_('volumen_ww', sel.num(0, 100000)), F_('trennung', sel.num(35, 70))] }] },
-      { type: 'expandable', name: 'wp', title: L.wp, icon: 'mdi:heat-pump', schema: [F_('typ', sel.opt(O.wp)), ...E_('leistung'), F_('schwelle', sel.num(0, 10000)), ...E_('betrieb', 'vorlauf', 'ruecklauf', 'waerme', 'wmz', 'cop', 'ventil', 'kuehlen', 'sperre', 'abtauen', 'sg_ready', 'quelle_ein', 'quelle_aus', 'quelle_pumpe')] },
+      { type: 'expandable', name: 'wp', title: L.wp, icon: 'mdi:heat-pump', schema: [F_('typ', sel.opt(O.wp)), ...E_('leistung'), F_('schwelle', sel.num(0, 10000)), ...E_('betrieb', 'vorlauf', 'ruecklauf', 'waerme', 'wmz', 'cop', 'ventil'), F_('ventil_position', sel.opt(O.ventil_position)), F_('ruecklauf_anbindung', sel.opt(O.ruecklauf_anbindung)), ...E_('kuehlen', 'sperre', 'abtauen', 'sg_ready', 'quelle_ein', 'quelle_aus', 'quelle_pumpe')] },
       { type: 'expandable', name: 'heizstab_oben', title: L.heizstab_oben, icon: 'mdi:heating-coil', schema: [F_('name', sel.txt), ...E_('stufe', 'leistung', 'temp')] },
       { type: 'expandable', name: 'heizstab_unten', title: L.heizstab_unten, icon: 'mdi:heating-coil', schema: [F_('name', sel.txt), ...E_('stufe', 'leistung', 'temp')] },
       { type: 'expandable', name: 'kamin', title: L.kamin, icon: 'mdi:fireplace', schema: [F_('typ', sel.opt(O.kamin)), F_('name', sel.txt), ...E_('temp', 'trend', 'pumpe', 'modus', 'brenner', 'leistung', 'leistung_el', 'wmz', 'abgas', 'zuluft'), { type: 'grid', name: '', schema: [F_('warm', sel.num(0, 100)), F_('feuer', sel.num(0, 100))] }] },
