@@ -431,7 +431,7 @@ class WarmwasserSchemaCard extends HTMLElement {
       // while shared tanks retain the bottom connection.
       const fmRuecklaufY = y_bo - 14;
       const fmRuecklauf = SPLIT
-        ? `M452 90H458Q466 90 466 98V120H315V${fmRuecklaufY}H206`
+        ? `M336 90H323Q315 90 315 98V${fmRuecklaufY}H206`
         : 'M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376';
       o += rohr(fmRuecklauf, F.kalt, fm_on);
     }
@@ -450,10 +450,10 @@ class WarmwasserSchemaCard extends HTMLElement {
       const topCrossings = [...(FM && SPLIT ? [fmY] : []), y_bo].filter(y => y > y_ro + 8 && y < y_m - 18).sort((a, b) => a - b);
       const topPath = `M206 ${y_ro}H242Q250 ${y_ro} 250 ${y_ro + 8}` + topCrossings.map(y => `V${y - 4}A4 4 0 0 1 250 ${y + 4}`).join('') + `V${y_m - 22}Q250 ${y_m - 14} 258 ${y_m - 14}H262`;
       o += rohr(topPath, CW, wpO, tO);
-      o += rohr(`M206 ${y_ru}H225V${y_m + 14}H262`, CW, wpU, tU);
+      o += rohr(`M206 ${y_ru}H216V${y_m + 6}Q216 ${y_m + 14} 224 ${y_m + 14}H262`, CW, wpU, tU);
       // The supply bridge crosses the blue return without joining it.
       o += rohr(`M277 ${y_m}H305A5 5 0 0 1 315 ${y_m}H325V136Q325 128 333 128H342Q350 128 350 136V146`, CW, wp_on);
-      if (HK) o += rohr(`M225 ${y_ru}H242A8 8 0 0 1 258 ${y_ru}H295`, CW, hk_fl > 0.04);
+      if (HK) o += rohr(`M216 ${y_ru}H242A8 8 0 0 1 258 ${y_ru}H295`, CW, hk_fl > 0.04);
     } else if (WP) {
       o += rohr(`M206 ${y_bo}H252Q262 ${y_bo} 262 ${y_bo + 10}V${y_m - 14}`, CK, wpO, tO);
       o += rohr(`M206 ${y_bu}H252Q262 ${y_bu} 262 ${y_bu - 10}V${y_m + 14}`, CK, wpU, tU);
@@ -566,7 +566,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* Umschaltventil WP + T-Stücke */
     if (WP) o += W.ventil ? `<g${more(W.ventil)}>${mischer(262, y_m, ventilVorlauf ? CW : CK, vb, CW, ventilVorlauf ? CW : CK)}</g>` : mischer(262, y_m, ventilVorlauf ? CW : CK);
     if (ventilVorlauf && !ruecklaufGetrennt) o += tee(310, y_m + 26);
-    if (HK && WP) o += tee(295, y_ru) + tee(240, y_bu) + (ventilVorlauf ? tee(225, y_ru) : '');
+    if (HK && WP) o += tee(295, y_ru) + tee(240, y_bu) + (ventilVorlauf ? tee(216, y_ru) : '');
     if (TW && ZK) o += tee(tk, -6) + tee(tw, -6);
 
     /* Wärmemengenzähler */
@@ -723,7 +723,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* ---------- Frischwassermodul ---------- */
     if (FM) {
       o += `<rect x="340" y="14" width="110" height="90" rx="12" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="340" y="14" width="110" height="90" rx="12" fill="url(#wwBox)"/>`;
-      o += stub(332, 40, 10, 12) + stub(448, 84, 10, 12) + stub(356, 8, 12, 10) + stub(422, 8, 12, 10);
+      o += stub(332, 40, 10, 12) + (SPLIT ? stub(332, 84, 10, 12) : stub(448, 84, 10, 12)) + stub(356, 8, 12, 10) + stub(422, 8, 12, 10);
       o += `<text x="352" y="32" font-size="8" class="wt" letter-spacing="2" fill="#fff" opacity=".85">${esc(c.hersteller)}</text><text x="352" y="92" font-size="22" font-weight="800" fill="#fff">${esc(c.name_fm)}</text>`;
       if (FMx && (FMx.temp || FMx.durchfluss)) {
         o += `<g${more(FMx.temp || FMx.durchfluss)}><rect x="392" y="62" width="52" height="34" rx="5" fill="#0f1114" fill-opacity=".85" stroke="#fff" stroke-opacity=".08"/>`;
