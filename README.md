@@ -119,6 +119,7 @@ A complete, commented example is in [`beispiel.yaml`](https://github.com/mariofr
 | `volumen` | – | Volume in litres (buffer for `getrennt`) |
 | `volumen_ww` | – | Hot water tank volume (`getrennt` only) |
 | `trennung` | `50` | Height of baffle / split / inner boiler in % (35–70) |
+| `heizkreis_separat` | `false` | With `typ: getrennt`, draw separate heating circuit supply and return connections on the left of the buffer. Currently supported without an additional heat source, solar thermal or hydraulic separator; otherwise the existing layout is retained. |
 
 ### `wp` – heat pump
 

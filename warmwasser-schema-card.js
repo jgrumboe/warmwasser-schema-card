@@ -151,6 +151,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     c.trennung = isNum(tr) ? Number(tr) : 50;
     c.volumen = sp.volumen ?? config.volumen ?? null;
     c.volumen_ww = sp.volumen_ww ?? null;
+    c.heizkreis_separat = sp.heizkreis_separat === true;
     c.heizstab_oben = hasEnt(config.heizstab_oben) ? { ...config.heizstab_oben } : null;
     c.heizstab_unten = hasEnt(config.heizstab_unten) ? { ...config.heizstab_unten } : null;
     const wpc = config.wp || (config.wp_leistung ? { leistung: config.wp_leistung, schwelle: config.wp_schwelle } : null);
@@ -329,6 +330,7 @@ class WarmwasserSchemaCard extends HTMLElement {
       };
     });
     const HK = hks.length > 0;
+    const separaterHeizkreis = HK && SPLIT && c.heizkreis_separat && !K && !SO && !W8;
     const hk_fl = hks.filter((x) => x.on).reduce((s, x) => s + x.a, 0);
     const akt = hks.filter((x) => x.on && x.a > 0.04).map((x) => x.x);
     const td = `animation-duration:${r2(1 / Math.max(hk_fl, 0.04))}s`;
@@ -363,10 +365,11 @@ class WarmwasserSchemaCard extends HTMLElement {
       `M${-w} 0C${-w - 2} ${r1(-hh * 0.45)} ${r1(-w * 0.15)} ${r1(-hh * 0.6)} ${r1(w * 0.1)} ${-hh}C${r1(w * 0.5)} ${r1(-hh * 0.6)} ${r1(w + 2)} ${r1(-hh * 0.4)} ${w} 0Z`;
     const pille = (f) => {
       const y = r1(f.y), cl = col(f.wert);
-      return `<g${more(f.entity)}><line x1="60" y1="${y}" x2="72" y2="${y}" stroke="${cl}" stroke-width="1.5"/>` +
-        `<rect x="2" y="${r1(y - 15)}" width="58" height="30" rx="10" style="fill:var(--secondary-background-color,#2a2d33)" stroke="${cl}" stroke-width="1.5"/>` +
-        `<text x="31" y="${r1(y - 3)}" font-size="8" class="wc ws" font-weight="600" letter-spacing=".8">${esc(f.name)}</text>` +
-        `<text x="31" y="${r1(y + 10)}" font-size="12" class="wc wt wv">${fmt(f.wert)}</text>` +
+      const shift = separaterHeizkreis ? -65 : 0;
+      return `<g${more(f.entity)}><line x1="${60 + shift}" y1="${y}" x2="72" y2="${y}" stroke="${cl}" stroke-width="1.5"/>` +
+        `<rect x="${2 + shift}" y="${r1(y - 15)}" width="58" height="30" rx="10" style="fill:var(--secondary-background-color,#2a2d33)" stroke="${cl}" stroke-width="1.5"/>` +
+        `<text x="${31 + shift}" y="${r1(y - 3)}" font-size="8" class="wc ws" font-weight="600" letter-spacing=".8">${esc(f.name)}</text>` +
+        `<text x="${31 + shift}" y="${r1(y + 10)}" font-size="12" class="wc wt wv">${fmt(f.wert)}</text>` +
         `<circle cx="72" cy="${y}" r="4" fill="${cl}" stroke="#fff" stroke-width="1.5"/></g>`;
     };
     const stab = (y, hs) => {
@@ -397,7 +400,7 @@ class WarmwasserSchemaCard extends HTMLElement {
 
     /* ---------- Abmessungen ---------- */
     const QS = WP && QT !== 'luft';
-    const minX = Math.min(0, K ? -160 : 0, SO ? x0 - 10 : 0, HK ? bx1 - 30 : 0);
+    const minX = Math.min(0, separaterHeizkreis ? -70 : 0, K ? -160 : 0, SO ? x0 - 10 : 0, HK ? bx1 - 30 : 0);
     let unten = HK ? 574 + dyw + hkExtra : SO ? 412 : 400;
     if (QS) unten = Math.max(unten, 566);
     o += `<svg viewBox="${minX} -30 ${486 - minX} ${unten + 30}"><defs>`;
@@ -452,8 +455,8 @@ class WarmwasserSchemaCard extends HTMLElement {
       o += rohr(topPath, CW, wpO, tO);
       o += rohr(`M206 ${y_ru}H216V${y_m + 6}Q216 ${y_m + 14} 224 ${y_m + 14}H262`, CW, wpU, tU);
       // The supply bridge crosses the blue return without joining it.
-      o += rohr(`M277 ${y_m}H305A5 5 0 0 1 315 ${y_m}H325V136Q325 128 333 128H342Q350 128 350 136V146`, CW, wp_on);
-      if (HK) o += rohr(`M216 ${y_ru}H242A8 8 0 0 1 258 ${y_ru}H295`, CW, hk_fl > 0.04);
+      o += rohr(`M277 ${y_m}H305A5 5 0 0 1 315 ${y_m}H318V178Q318 170 326 170`, CW, wp_on);
+      if (HK && !separaterHeizkreis) o += rohr(`M216 ${y_ru}H242A8 8 0 0 1 258 ${y_ru}H295`, CW, hk_fl > 0.04);
     } else if (WP) {
       o += rohr(`M206 ${y_bo}H252Q262 ${y_bo} 262 ${y_bo + 10}V${y_m - 14}`, CK, wpO, tO);
       o += rohr(`M206 ${y_bu}H252Q262 ${y_bu} 262 ${y_bu - 10}V${y_m + 14}`, CK, wpU, tU);
@@ -506,12 +509,17 @@ class WarmwasserSchemaCard extends HTMLElement {
     if (HK) {
       if (WP && !ventilVorlauf && akt.length && !wp_on) o += `<path d="M206 ${y_ru}H254A8 8 0 0 1 270 ${y_ru}H295M240 ${y_bu}H206" class="w3" style="${td}"/>`;
       const tf = 1 / Math.max(hk_fl, 0.04), fl1 = hk_fl > 0.04;
-      const jmp = (x) => (FM ? `399A9 9 0 0 0 ${x} 381` : '381');
+      const jmp = (x) => (FM && !SPLIT ? `399A9 9 0 0 0 ${x} 381` : '381');
       const rl1 = W8 ? `M322 462H320Q312 462 312 454V${jmp(312)}` : `M312 ${y_rv}V${jmp(312)}`;
+      if (separaterHeizkreis) {
+        o += rohr(`M70 ${y_ru}H60V${y_vv - 8}Q60 ${y_vv} 68 ${y_vv}H${bx1}`, CW, fl1, tf);
+        o += rohr(`M70 ${y_bu}H68A8 8 0 0 1 52 ${y_bu}H40V${y_rv - 8}Q40 ${y_rv} 48 ${y_rv}H${bx1}`, CK, fl1, tf);
+      } else {
       o += rohr(WP ? `${rl1}V368Q312 360 304 360H248Q240 360 240 352V${y_bu}` : `${rl1}V${y_bu + 8}Q312 ${y_bu} 304 ${y_bu}H206`, CK, fl1, tf);
       o += rohr((ventilVorlauf ? `M295 ${y_ru}V351A9 9 0 0 0 295 369` : WP ? `M295 ${y_ru}V${y_m - 9}A9 9 0 0 0 295 ${y_m + 9}V351A9 9 0 0 0 295 369`
         : `M206 ${y_ru}H287Q295 ${y_ru} 295 ${y_ru + 8}V${y_bu - 9}A9 9 0 0 0 295 ${y_bu + 9}`) +
-        `V${FM ? '381A9 9 0 0 0 295 399' : '399'}` + (W8 ? 'V402Q295 410 303 410H304A8 8 0 0 1 320 410H322' : `V${y_vv}`), CW, fl1, tf);
+        `V${FM && !SPLIT ? '381A9 9 0 0 0 295 399' : '399'}` + (W8 ? 'V402Q295 410 303 410H304A8 8 0 0 1 320 410H322' : `V${y_vv}`), CW, fl1, tf);
+      }
       if (W8) {
         o += rohr(`M342 410H348Q356 410 356 418V${y_vv}`, CW, fl1, tf);
         o += rohr(`M372 ${y_rv}V470Q372 462 364 462A8 8 0 0 0 348 462H342`, CK, fl1, tf);
@@ -525,7 +533,7 @@ class WarmwasserSchemaCard extends HTMLElement {
         } else o += rohr(`M${rx} ${y_he}V${y_rv}`, CK, x.on);
       }
       o += verteiler(bx1, bxR, y_rv, CK);
-      if (akt.length) o += `<path d="M${Math.min(...akt) + 16} ${y_rv}H${srcR}" class="w3" style="${td}"/>`;
+      if (akt.length) o += `<path d="M${Math.min(...akt) + 16} ${y_rv}H${separaterHeizkreis ? bx1 : srcR}" class="w3" style="${td}"/>`;
       for (const x of hks) {
         const sx = x.x - 16, jump = `M${sx} ${y_vv}V${y_rv - 11}A11 11 0 0 1 ${sx} ${y_rv + 11}`;
         if (x.MIX) {
@@ -534,7 +542,7 @@ class WarmwasserSchemaCard extends HTMLElement {
         } else o += rohr(`${jump}V${y_he}`, CW, x.on);
       }
       o += verteiler(bx1, bxV, y_vv, CW);
-      if (akt.length) o += `<path d="M${srcV} ${y_vv}H${Math.min(...akt) - 16}" class="w3" style="${td}"/>`;
+      if (akt.length) o += `<path d="M${separaterHeizkreis ? bx1 : srcV} ${y_vv}H${Math.min(...akt) - 16}" class="w3" style="${td}"/>`;
       o += `<text x="${bx1 - 8}" y="${y_vv + 3}" font-size="7.5" class="we ws" font-weight="600">VL</text><text x="${bx1 - 8}" y="${y_rv + 3}" font-size="7.5" class="we ws" font-weight="600">RL</text>`;
       if (W8) {
         const WX = c.weiche;
@@ -566,7 +574,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* Umschaltventil WP + T-Stücke */
     if (WP) o += W.ventil ? `<g${more(W.ventil)}>${mischer(262, y_m, ventilVorlauf ? CW : CK, vb, CW, ventilVorlauf ? CW : CK)}</g>` : mischer(262, y_m, ventilVorlauf ? CW : CK);
     if (ventilVorlauf && !ruecklaufGetrennt) o += tee(310, y_m + 26);
-    if (HK && WP) o += tee(295, y_ru) + tee(240, y_bu) + (ventilVorlauf ? tee(216, y_ru) : '');
+    if (HK && WP && !separaterHeizkreis) o += tee(295, y_ru) + tee(240, y_bu) + (ventilVorlauf ? tee(216, y_ru) : '');
     if (TW && ZK) o += tee(tk, -6) + tee(tw, -6);
 
     /* Wärmemengenzähler */
@@ -697,6 +705,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
     for (const y of [...(FM ? [46] : []), ...(WP ? [y_ro, y_bo] : []), ...(WP || HK ? [y_ru, y_bu] : [])]) o += stub(198, y - 6, 14, 12);
     if (K) o += stub(62, y_ru - 6, 14, 12) + stub(62, y_bu - 6, 14, 12);
+    if (separaterHeizkreis) o += stub(62, y_ru - 6, 14, 12) + stub(62, y_bu - 6, 14, 12);
     if (FM) o += SPLIT ? stub(198, y_bo - 20, 12, 12) : stub(131, 370, 12, 12);
     if (hso) o += stab((y_ro + y_bo) / 2, hso);
     if (hsu) o += stab((y_ru + y_bu) / 2, hsu);
@@ -749,7 +758,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* ---------- Wärmepumpe ---------- */
     if (WP) {
       o += `<rect x="330" y="150" width="120" height="222" rx="14" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="330" y="150" width="120" height="222" rx="14" fill="url(#wwBox)"/>`;
-      o += stub(344, 142, 12, 10) + (ventilVorlauf ? stub(322, y_m + 20, 10, 12) + (ruecklaufGetrennt ? stub(322, y_m + 38, 10, 12) : '') : stub(322, y_ru - 6, 10, 12) + stub(322, y_m - 6, 10, 12));
+      o += (ventilVorlauf ? stub(322, 164, 10, 12) : stub(344, 142, 12, 10)) + (ventilVorlauf ? stub(322, y_m + 20, 10, 12) + (ruecklaufGetrennt ? stub(322, y_m + 38, 10, 12) : '') : stub(322, y_ru - 6, 10, 12) + stub(322, y_m - 6, 10, 12));
       o += `<text x="342" y="168" font-size="9" class="wt" letter-spacing="2" fill="#fff" opacity=".9">${esc(c.hersteller)}</text>`;
       if (W.cop) o += `<text x="438" y="168" font-size="9" class="we wt wx" data-more="${esc(W.cop)}" fill="#fff">COP ${isNum(S(W.cop)) ? Number(S(W.cop)).toFixed(1) : '–'}</text>`;
       o += `<circle cx="390" cy="226" r="42" fill="#15171b" stroke="#0c0d0f" stroke-width="3"/><circle cx="390" cy="226" r="36" fill="#1d2025"/>`;
@@ -799,7 +808,7 @@ const LBL = {
     titel: 'Titel', hersteller: 'Hersteller-Schriftzug', name_wp: 'Name WP', name_fm: 'Name FM', sprache: 'Sprache',
     t_min: 'Farbskala min (°C)', t_max: 'Farbskala max (°C)', hs_stufen: 'Heizstab-Stufen', aussen: 'Außentemperatur', pv: 'PV-Leistung',
     zirkulationspumpe: 'Zirkulationspumpe', speicher: 'Speicher', typ: 'Typ', volumen: 'Volumen (l)', volumen_ww: 'Volumen Warmwasser (l)',
-    trennung: 'Trennung / Boilerhöhe (%)', wp: 'Wärmepumpe', leistung: 'Leistung', schwelle: 'Schwelle (W)', betrieb: 'Betrieb',
+    trennung: 'Trennung / Boilerhöhe (%)', heizkreis_separat: 'Heizkreis separat am Puffer (ohne Zusatzwärme, Solar oder Weiche)', wp: 'Wärmepumpe', leistung: 'Leistung', schwelle: 'Schwelle (W)', betrieb: 'Betrieb',
     vorlauf: 'Vorlauf', ruecklauf: 'Rücklauf', waerme: 'Wärmeleistung', cop: 'COP', sperre: 'EVU-Sperre', abtauen: 'Abtauen',
     kuehlen: 'Kühlbetrieb', sg_ready: 'SG-Ready', ventil: 'Umschaltventil', ventil_position: 'Umschaltventil im', ruecklauf_anbindung: 'Rückläufe (bei Ventil im Vorlauf)', quelle_ein: 'Quelle ein', quelle_aus: 'Quelle aus',
     quelle_pumpe: 'Quellenpumpe', wmz: 'Wärmemengenzähler (kWh)', heizstab_oben: 'Heizstab oben', heizstab_unten: 'Heizstab unten',
@@ -816,7 +825,7 @@ const LBL = {
     titel: 'Title', hersteller: 'Manufacturer label', name_wp: 'Heat pump name', name_fm: 'FWM name', sprache: 'Language',
     t_min: 'Colour scale min (°C)', t_max: 'Colour scale max (°C)', hs_stufen: 'Heater steps', aussen: 'Outdoor temperature', pv: 'PV power',
     zirkulationspumpe: 'Circulation pump', speicher: 'Storage tank', typ: 'Type', volumen: 'Volume (l)', volumen_ww: 'Hot water volume (l)',
-    trennung: 'Separation / boiler height (%)', wp: 'Heat pump', leistung: 'Power', schwelle: 'Threshold (W)', betrieb: 'Running',
+    trennung: 'Separation / boiler height (%)', heizkreis_separat: 'Separate heating circuit connections (no extra heat, solar or separator)', wp: 'Heat pump', leistung: 'Power', schwelle: 'Threshold (W)', betrieb: 'Running',
     vorlauf: 'Flow', ruecklauf: 'Return', waerme: 'Heat output', cop: 'COP', sperre: 'Grid lock', abtauen: 'Defrost',
     kuehlen: 'Cooling', sg_ready: 'SG Ready', ventil: 'Diverter valve', ventil_position: 'Diverter valve location', ruecklauf_anbindung: 'Returns (when valve is in supply)', quelle_ein: 'Source in', quelle_aus: 'Source out',
     quelle_pumpe: 'Source pump', wmz: 'Heat meter (kWh)', heizstab_oben: 'Heater top', heizstab_unten: 'Heater bottom',
@@ -901,7 +910,7 @@ class WarmwasserSchemaCardEditor extends HTMLElement {
     return [
       { type: 'grid', name: '', schema: [F_('titel', sel.txt), F_('hersteller', sel.txt), F_('name_wp', sel.txt), F_('name_fm', sel.txt), F_('sprache', sel.opt(O.sprache)), F_('hs_stufen', sel.num(1, 12)), F_('t_min', sel.num(0, 90)), F_('t_max', sel.num(0, 95))] },
       ...E_('aussen', 'pv', 'zirkulationspumpe'),
-      { type: 'expandable', name: 'speicher', title: L.speicher, icon: 'mdi:water-boiler', schema: [F_('typ', sel.opt(O.speicher)), { type: 'grid', name: '', schema: [F_('volumen', sel.num(0, 100000)), F_('volumen_ww', sel.num(0, 100000)), F_('trennung', sel.num(35, 70))] }] },
+      { type: 'expandable', name: 'speicher', title: L.speicher, icon: 'mdi:water-boiler', schema: [F_('typ', sel.opt(O.speicher)), F_('heizkreis_separat', sel.bool), { type: 'grid', name: '', schema: [F_('volumen', sel.num(0, 100000)), F_('volumen_ww', sel.num(0, 100000)), F_('trennung', sel.num(35, 70))] }] },
       { type: 'expandable', name: 'wp', title: L.wp, icon: 'mdi:heat-pump', schema: [F_('typ', sel.opt(O.wp)), ...E_('leistung'), F_('schwelle', sel.num(0, 10000)), ...E_('betrieb', 'vorlauf', 'ruecklauf', 'waerme', 'wmz', 'cop', 'ventil'), F_('ventil_position', sel.opt(O.ventil_position)), F_('ruecklauf_anbindung', sel.opt(O.ruecklauf_anbindung)), ...E_('kuehlen', 'sperre', 'abtauen', 'sg_ready', 'quelle_ein', 'quelle_aus', 'quelle_pumpe')] },
       { type: 'expandable', name: 'heizstab_oben', title: L.heizstab_oben, icon: 'mdi:heating-coil', schema: [F_('name', sel.txt), ...E_('stufe', 'leistung', 'temp')] },
       { type: 'expandable', name: 'heizstab_unten', title: L.heizstab_unten, icon: 'mdi:heating-coil', schema: [F_('name', sel.txt), ...E_('stufe', 'leistung', 'temp')] },

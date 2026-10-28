@@ -71,6 +71,7 @@ Ein vollständiges, kommentiertes Beispiel liegt in [`examples/beispiel.yaml`](e
 | `volumen` | – | Volumen in Litern (bei `getrennt`: Puffer) |
 | `volumen_ww` | – | Nur bei `getrennt`: Volumen Warmwasserspeicher |
 | `trennung` | `50` | Höhe von Blech, Trennung bzw. innerem Boiler in % (35–70) |
+| `heizkreis_separat` | `false` | Bei `typ: getrennt` Heizkreis-Vor- und Rücklauf links direkt am Puffer darstellen. Derzeit nur ohne Zusatzwärme, Solarthermie oder hydraulische Weiche; sonst bleibt die bisherige Darstellung erhalten. |
 
 ### `wp` – Wärmepumpe
 

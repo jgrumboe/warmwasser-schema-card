@@ -56,9 +56,21 @@ test('supply valve renders combined or separate returns without changing the def
   assert.ok(legacy.includes('M277 282.5H326'));
   assert.ok(combined.includes('M400 372V381A9 9'));
   assert.ok(combined.includes('H305A5 5 0 0 1 315 282.5'));
+  assert.ok(combined.includes('H318V178Q318 170 326 170'));
   const animated = (svg, path) => svg.includes(`d="${path}" class="w3"`);
   const bufferPath = 'M206 227H216V288.5Q216 296.5 224 296.5H262';
   assert.equal(animated(make('vorlauf', 'gemeinsam', 'Puffer'), bufferPath), true);
   assert.equal(animated(combined, bufferPath), false);
   assert.equal(animated(make('vorlauf', 'gemeinsam', 'unknown'), bufferPath), true);
+});
+
+test('separate heating circuit connects to left side of buffer and removes old lower bridges', () => {
+  const card = new Card();
+  card.setConfig({ speicher: { typ: 'getrennt', heizkreis_separat: true }, wp: { betrieb: 'binary_sensor.wp', ventil_position: 'vorlauf' }, fm: { pumpe: 'binary_sensor.fm' }, heizkreise: [{ pumpe: 'binary_sensor.hk' }] });
+  card._hass = { language: 'de', states: { 'binary_sensor.wp': { state: 'on' }, 'binary_sensor.hk': { state: 'on' } } };
+  const svg = card._render();
+  assert.ok(svg.includes('M70 227H60V412Q60 420 68 420H130'));
+  assert.ok(svg.includes('M70 340H68A8 8 0 0 1 52 340H40V440Q40 448 48 448H130'));
+  assert.ok(!svg.includes('295 399'));
+  assert.ok(svg.includes('d="M70 227H60V412Q60 420 68 420H130" class="w3"'));
 });
