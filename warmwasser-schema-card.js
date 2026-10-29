@@ -228,7 +228,9 @@ class WarmwasserSchemaCard extends HTMLElement {
     }).sort((a, b) => a.y - b.y);
     const TYP = c.typ, TG = TYP === 'trennblech', SPLIT = TYP === 'getrennt', TT = TYP === 'kombi' || TYP === 'hygiene';
     const y_t = 40 + (310 * clamp(c.trennung, 35, 70)) / 100, gap = SPLIT ? 32 : 18;
-    const y_ro = 70, y_bo = y_t - gap, y_ru = y_t + gap, y_bu = 340, y_m = (y_ru + 338) / 2;
+    const y_bo = y_t - gap, y_ru = y_t + gap, y_bu = 340, y_m = (y_ru + 338) / 2;
+    const fmHeater = SPLIT && !!c.heizstab_oben && !!(c.fm || c.zirkulationspumpe);
+    const y_ro = fmHeater ? Math.min(70, y_bo - 54) : 70;
     const ueber = fl.filter((f) => f.y < y_t), unter = fl.filter((f) => f.y > y_t);
     const w_ueber = ueber.length ? ueber[ueber.length - 1].wert : unter.length ? unter[0].wert : 'x';
     const w_unter = unter.length ? unter[0].wert : w_ueber;
@@ -367,19 +369,17 @@ class WarmwasserSchemaCard extends HTMLElement {
         `<text x="31" y="${r1(y + 10)}" font-size="12" class="wc wt wv">${fmt(f.wert)}</text>` +
         `<circle cx="72" cy="${y}" r="4" fill="${cl}" stroke="#fff" stroke-width="1.5"/></g>`;
     };
-    const stab = (y, hs, left = false) => {
+    const stab = (y, hs) => {
       const cl = hs.on ? F.aktiv : '#b0b6bd', pitch = 70 / c.hs_stufen;
-      const textMirror = left ? ' transform="translate(284 0) scale(-1 1)"' : '';
-      let s = left ? '<g transform="translate(274 0) scale(-1 1)">' : '';
-      s += hs.on ? `<ellipse cx="156" cy="${y}" rx="50" ry="13" fill="url(#wwHeat)" class="wb" style="animation-duration:2.4s"/>` : '';
+      let s = hs.on ? `<ellipse cx="156" cy="${y}" rx="50" ry="13" fill="url(#wwHeat)" class="wb" style="animation-duration:2.4s"/>` : '';
       s += `<g${more(hs.stufe || hs.leistung || hs.temp)}><path d="M202 ${y}h-10l-3-4${'l-6 8l-6-8'.repeat(6)}l-3 4" fill="none" stroke="${cl}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
       s += `<rect x="198" y="${y - 11}" width="16" height="22" rx="3" fill="#2b2f35" stroke="${cl}" stroke-width="1.5"/>`;
-      s += `<text x="192" y="${y - 13}" font-size="9.5" class="we wo wt"${textMirror} fill="${hs.on ? F.aktiv : '#fff'}">${esc(hs.name)}</text>`;
+      s += `<text x="192" y="${y - 13}" font-size="9.5" class="we wo wt" fill="${hs.on ? F.aktiv : '#fff'}">${esc(hs.name)}</text>`;
       if (hs.stufe) for (let i = 0; i < c.hs_stufen; i++)
         s += `<rect x="${r2(124 + i * pitch)}" y="${y + 11}" width="${r2(pitch - 2)}" height="4" rx="1.5" fill="${i < hs.step ? F.aktiv : 'rgba(255,255,255,.3)'}"/>`;
       const info = [hs.leistung ? watt(hs.p) : '', hs.temp ? fmt(S(hs.temp)) : ''].filter(Boolean).join(' · ');
-      if (info) s += `<text x="192" y="${y + (hs.stufe ? 28 : 22)}" font-size="9" class="we wo"${textMirror} fill="#fff">${info}</text>`;
-      return s + '</g>' + (left ? '</g>' : '');
+      if (info) s += `<text x="192" y="${y + (hs.stufe ? 28 : 22)}" font-size="9" class="we wo" fill="#fff">${info}</text>`;
+      return s + '</g>';
     };
     const chip = (icon, text, on, e) =>
       `<span class="chip${e ? ' wx' : ''}"${e ? ` data-more="${esc(e)}"` : ''}${on ? ` style="background:color-mix(in srgb,${F.aktiv} 16%,transparent);color:${F.aktiv}"` : ''}><ha-icon icon="${icon}" style="--mdc-icon-size:15px"></ha-icon>${text}</span>`;
@@ -684,8 +684,8 @@ class WarmwasserSchemaCard extends HTMLElement {
     if (FM) o += SPLIT ? stub(198, y_bo - 20, 12, 12) : stub(131, 370, 12, 12);
     if (hso) {
       const heaterY = (y_ro + y_bo) / 2;
-      const left = !!(SPLIT && FM && Math.abs(heaterY - (y_bo - 14)) < 18);
-      o += stab(heaterY - (left ? 8 : 0), hso, left);
+      const crowded = fmHeater && Math.abs(heaterY - (y_bo - 14)) < 18;
+      o += stab(crowded ? (y_ro + y_bo - 14) / 2 : heaterY, hso);
     }
     if (hsu) o += stab((y_ru + y_bu) / 2, hsu);
     o += fl.map(pille).join('');

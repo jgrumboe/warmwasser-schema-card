@@ -25,14 +25,15 @@ test('separate tanks return the fresh-water module to the hot-water tank', () =>
   }
 });
 
-test('small separate tanks bridge the return crossing and move a conflicting upper heater to the left', () => {
+test('small separate tanks bridge the return and keep the heater clear on the right', () => {
   const card = new Card();
   card.setConfig({ speicher: { typ: 'getrennt', trennung: 35 }, fm: { pumpe: 'binary_sensor.fm' }, wp: { betrieb: 'binary_sensor.wp' }, heizstab_oben: { leistung: 'sensor.heater' } });
   card._hass = { language: 'de', states: { 'binary_sensor.fm': { state: 'on' }, 'sensor.heater': { state: '500' } } };
   const svg = card._render();
   assert.ok(svg.includes('V106.5A4 4 0 0 1 300 98.5'));
-  assert.ok(svg.includes('<g transform="translate(274 0) scale(-1 1)">'));
-  assert.ok(svg.includes('transform="translate(284 0) scale(-1 1)"'));
+  assert.ok(svg.includes('<rect x="198" y="56.5" width="14" height="12"'));
+  assert.ok(svg.includes('<rect x="198" y="71.5" width="16" height="22"'));
+  assert.ok(!svg.includes('<g transform="translate(274 0) scale(-1 1)">'));
 });
 
 test('hot-water charging pipe jumps over the fresh-water return only at a crossing', () => {
