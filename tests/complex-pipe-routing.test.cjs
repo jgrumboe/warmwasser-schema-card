@@ -34,6 +34,12 @@ test('each crossing bridge is painted after every layer of the crossing pipe', (
     c._hass.states['sensor.valve'].state='50';
     const results=routed(c), svg=c._render();
     assert.deepEqual(plain(route(c._model,[...ids].reverse())),plain(results));
+    assert.ok(results['wp-lower-supply'].crossings.some(x=>x.otherId==='wp-upper-return' && x.bridge),`${type}: lower supply owns bridge`);
+    assert.ok(results['wp-upper-return'].crossings.some(x=>x.otherId==='wp-lower-supply' && !x.bridge),`${type}: upper return stays below`);
+    if (type==='getrennt') {
+      assert.ok(results['wp-upper-supply'].crossings.some(x=>x.otherId==='fm-return' && x.bridge));
+      assert.ok(results['fm-return'].crossings.some(x=>x.otherId==='wp-upper-supply' && !x.bridge));
+    }
     let bridges=0;
     for (const [id, routeResult] of Object.entries(results)) for (const crossing of routeResult.crossings) {
       if (!crossing.bridge) continue;
@@ -61,6 +67,15 @@ test('WP operating states alter animation, not geometry, including cooling and s
       const active = operation === 'on' && (id === 'wp-valve-return' || (valve === '100' ? id.includes('upper') : id.includes('lower')));
       assert.equal(svg.includes(`d="${baseline[id].path}" class="w3"`), active, `${operation}/${valve}/${cool}: ${id}`);
     }
+  }
+});
+test('missing or contradictory endpoint roles do not imply supply priority', () => {
+  for (const role of ['return',undefined]) {
+    const c=fixture('schicht'); c._model.components.fm.origin.x+=30; c._model.components.fm.origin.y+=15;
+    c._model.components.wp.ports['lower-supply'].role=role;
+    const results=routed(c);
+    assert.ok(results['wp-upper-return'].crossings.some(x=>x.otherId==='wp-lower-supply' && x.bridge));
+    assert.ok(results['wp-lower-supply'].crossings.some(x=>x.otherId==='wp-upper-return' && !x.bridge));
   }
 });
 test('WP meter remains canonical but fails closed after movement', () => {

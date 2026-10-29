@@ -562,7 +562,8 @@ function compilePipeRoutes(routes, options = {}) {
   const obstacles = options.obstacles ?? [];
   const fail = (code, ids, reason) => ({status:'failed', code, connectionIds:[...new Set(ids)].sort(), reason});
   if (![radius, bridgeRadius, halfWidth].every(n => Number.isFinite(n) && n >= 0) || bridgeRadius === 0 || !Array.isArray(routes)) return fail('invalid-input', [], 'Invalid compiler options or routes');
-  const rs = routes.map(r => ({...r})).sort((a,b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const rs = routes.map(r => ({...r})).sort((a,b) =>
+    Number(a.role === 'supply') - Number(b.role === 'supply') || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const eq = (a,b) => a.x === b.x && a.y === b.y;
   const dist = (a,b) => Math.abs(a.x-b.x)+Math.abs(a.y-b.y);
   const inRange = (v,a,b) => v >= Math.min(a,b) && v <= Math.max(a,b);
@@ -603,7 +604,7 @@ function compilePipeRoutes(routes, options = {}) {
     }
     if(contact && (j!==i+1 || overlap || !eq(point,b))) return fail('self-contact',[r.id],'Route intersects or overlaps itself');
   }
-  // All pairs are examined after routing, so bridge ownership is stable by ID.
+  // The later route in paint order owns the bridge at each crossing.
   for (let i=0;i<rs.length;i++) for (let j=i+1;j<rs.length;j++) {
     const a=rs[i], b=rs[j];
     for(let ai=0;ai<a.points.length-1;ai++) for(let bi=0;bi<b.points.length-1;bi++) {
@@ -630,7 +631,7 @@ function compilePipeRoutes(routes, options = {}) {
       if (ah===bh || eq(x,p)||eq(x,q)||eq(x,u)||eq(x,v)) return fail('unnamed-contact',[a.id,b.id],'Contact is not a named shared junction');
       const clearance=bridgeRadius+halfWidth;
       if (dist(x,p)<=a._compilerRadii[ai]+clearance || dist(x,q)<=a._compilerRadii[ai+1]+clearance || dist(x,u)<=b._compilerRadii[bi]+clearance || dist(x,v)<=b._compilerRadii[bi+1]+clearance) return fail('crossing-near-corner',[a.id,b.id],'Crossing too close to an endpoint or corner');
-      // Higher ID takes the bridge; lower ID remains straight.
+      // The later route takes the bridge; the earlier route remains straight.
       b._compilerCrossings.push({point:x, segment:bi, otherId:a.id, otherSegment:ai, bridge:true});
       a._compilerCrossings.push({point:x, segment:ai, otherId:b.id, otherSegment:bi, bridge:false});
     }
@@ -701,7 +702,7 @@ function compilePipeRoutes(routes, options = {}) {
     }
     result[r.id]={points:r.points.map(p=>({x:p.x,y:p.y})),path:d,crossings:r._compilerCrossings.map(c=>({point:c.point,otherId:c.otherId,bridge:c.bridge}))};
   }
-  return {status:'routed',routes:result};
+  return {status:'routed',routes:result,paintOrder:rs.map(r => r.id)};
 }
 
 // Resolve model references without mutating geometry or confusing bounds with obstacles.
@@ -717,7 +718,7 @@ function routeDiagramConnections(model, ids, options = {}) {
     const j = model.junctions[ref];
     if (j) return { x: j.x, y: j.y, medium: j.medium, ref };
     const dot = ref.lastIndexOf('.'), owner = ref.slice(0, dot), c = model.components[owner], p = c && c.ports[ref.slice(dot + 1)];
-    return p && { x: c.origin.x + p.x, y: c.origin.y + p.y, direction: p.direction, medium: p.medium, owner, ref };
+    return p && { x: c.origin.x + p.x, y: c.origin.y + p.y, direction: p.direction, medium: p.medium, role: p.role, owner, ref };
   };
   const obstacles = [];
   for (const [id, c] of Object.entries(model.components)) for (const area of c.routingAreas || [])
@@ -746,11 +747,12 @@ function routeDiagramConnections(model, ids, options = {}) {
     if (model.routingScope && !model.routingScope.fm) { result[id] = { status:'unsupported', reason:'unsupported-configuration' }; continue; }
     const routed = routeOrthogonalConnection({ from: resolved[0], to: resolved.at(-1), vias: resolved.slice(1,-1).map(p => ({ id:p.ref, x:p.x, y:p.y })), obstacles, clearance:13, lead:16 });
     if (routed.status !== 'routed') { result[id] = routed; continue; }
-    candidates.push({ id, points:routed.points, nodes:resolved.map(p => ({ ref:p.ref, x:p.x, y:p.y })) });
+    const role = resolved[0].role === 'supply' && resolved.at(-1).role === 'supply' ? 'supply' : 'neutral';
+    candidates.push({ id, role, points:routed.points, nodes:resolved.map(p => ({ ref:p.ref, x:p.x, y:p.y })) });
   }
   if (candidates.length) {
     const compiled = compilePipeRoutes(candidates, { radius:8, bridgeRadius:4, halfWidth:5, obstacles });
-    if (compiled.status === 'routed') for (const [id, route] of Object.entries(compiled.routes)) result[id] = { status:'routed', ...route };
+    if (compiled.status === 'routed') for (const [id, route] of Object.entries(compiled.routes)) result[id] = { status:'routed', ...route, paintOrder:compiled.paintOrder.indexOf(id) };
     else for (const c of candidates) result[c.id] = { status:'failed', code:compiled.code, reason:compiled.reason };
   }
   return result;
@@ -1162,9 +1164,8 @@ class WarmwasserSchemaCard extends HTMLElement {
         else o += rohr(`M${ib.x} ${ib.y}V399A9 9 0 0 0 400 381V${ia.y}${ia.x !== 400 ? `H${ia.x}` : ''}`, F.quelle, qon) + rohr(`M${ob.x} ${ob.y}V381A9 9 0 0 1 430 399V${oa.y}${oa.x !== 430 ? `H${oa.x}` : ''}`, F.quelle, qon);
       }
     }
-    // The compiler assigns bridges to the higher lexicographic ID. Paint whole
-    // pipe groups, including animation, in that order so each bridge stays on top.
-    if (routes) for (const id of Object.keys(primaryPipes).sort()) o += primaryPipes[id];
+    // Preserve the compiler's bridge order for whole pipe groups and animation.
+    if (routes) for (const id of Object.keys(primaryPipes).sort((a,b) => routes[a].paintOrder - routes[b].paintOrder)) o += primaryPipes[id];
     const TWc = c.trinkwasser;
     if (TW) {
       const domesticOffset = model.components['domestic-boundary'].origin.y - model.components['domestic-boundary'].baseOrigin.y;

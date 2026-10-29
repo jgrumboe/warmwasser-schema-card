@@ -26,6 +26,22 @@ test('batch crossing honors junction identity and is deterministic regardless of
   b.nodes[0].ref='one'; assert.doesNotMatch(compile([a,b]).routes.b.path,/A4 4/);
   assert.equal(compile([segmentRoute('l',[[0,0],[50,0],[50,50]])],{obstacles:[{x:45,y:1,width:1,height:1}]}).code,'curve-obstacle');
 });
+test('supply role takes bridge priority before ID, with ID fallback for equal or absent roles', () => {
+  const supply={...segmentRoute('a-supply',[[0,50],[100,50]]),role:'supply'};
+  const ret={...segmentRoute('z-return',[[50,0],[50,100]]),role:'neutral'};
+  const r=compile([ret,supply]);
+  assert.equal(r.status,'routed');
+  assert.deepEqual(plain(r.paintOrder),['z-return','a-supply']);
+  assert.equal(r.routes['a-supply'].crossings[0].bridge,true);
+  assert.equal(r.routes['z-return'].crossings[0].bridge,false);
+  assert.deepEqual(plain(compile([supply,ret])),plain(r));
+  for (const role of ['supply','neutral',undefined]) {
+    supply.role=role; ret.role=role;
+    const tied=compile([ret,supply]);
+    assert.deepEqual(plain(tied.paintOrder),['a-supply','z-return']);
+    assert.equal(tied.routes['z-return'].crossings[0].bridge,true);
+  }
+});
 test('model resolver reports unknown refs, medium mismatch and fixed policy', () => {
   const c=card(), m=c._model; m.connections['fm-supply'].to='missing.port'; assert.equal(route(m,['fm-supply'])['fm-supply'].code,'unknown-reference');
   m.connections['fm-supply'].to='fm.cold-water'; assert.equal(route(m,['fm-supply'])['fm-supply'].code,'medium-mismatch');

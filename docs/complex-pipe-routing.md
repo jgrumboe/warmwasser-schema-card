@@ -63,12 +63,19 @@ den bestehenden Compiler; dessen endgültiger SVG-Pfad speist sämtliche Rohrlag
 und Strömungsanimationen. Bei aktiver Automatik werden auch die bisherigen festen
 WP-Brücken vollständig durch die berechneten Pfade ersetzt.
 
-Brückenzuordnung und SVG-Zeichenreihenfolge verwenden dieselbe Regel: Die
-lexikografisch höhere Verbindungs-ID erhält die Brücke und wird als vollständige
-Rohrgruppe später gezeichnet. Das gilt für Schatten, Farbe, Glanz und Animation
-zusammen. So liegt das Rohr mit der Brücke auch sichtbar im Vordergrund.
-Diese Reihenfolge ist eine Darstellungsregel, keine Priorität eines Mediums
-oder einer Fließrichtung. Die festen kanonischen Zeichenrezepte bleiben erhalten.
+Brückenzuordnung und SVG-Zeichenreihenfolge verwenden dieselbe Regel: Vorläufe
+erhalten Vorrang vor Rückläufen und neutralen Verbindungen. Nur wenn beide
+aufgelösten Anschlussrollen `supply` sind, gilt eine Verbindung hier als Vorlauf.
+Fehlende oder widersprüchliche Rollen erhalten keinen Vorlaufvorrang; Farbe,
+Temperatur, Verbindungsname und aktueller Betriebszustand spielen keine Rolle.
+Bei gleicher Priorität erhält weiterhin die lexikografisch höhere ID die Brücke.
+
+Der Compiler gibt die daraus folgende Zeichenreihenfolge vor. Das Rohr mit der
+Brücke wird als vollständige Gruppe später gezeichnet, einschließlich Schatten,
+Farbe, Glanz und Animation. Bei der gezeigten WP/FM-Anlage tragen dadurch beide
+WP-Vorläufe die Brücken über die jeweils gekreuzten Rückläufe. Das ist eine
+einheitliche Diagrammkonvention und keine Berechnung der räumlichen Rohrlage
+einer realen Anlage. Die festen kanonischen Zeichenrezepte bleiben erhalten.
 
 Die bestehende FM-Freigabe und deren Textgrenzen bleiben bestehen. Zusätzlich
 gilt für die WP: Typ `luft`, kein `wmz`, `sg_ready`, `quelle_ein` oder
@@ -120,13 +127,16 @@ bleibt zusätzlich zur lokalen Browserprüfung erforderlich.
 ### Abschlussprüfung
 
 `node --check warmwasser-schema-card.js`, `git diff --check` und
-`node --test tests/*.test.cjs` sind erfolgreich: **525 Tests**, darunter alle
+`node --test tests/*.test.cjs` sind erfolgreich: **527 Tests**, darunter alle
 459 unveränderten Golden-Szenarien gegen Upstream v3.0.1. Neue Tests prüfen echte
 Brücken, dieselben Pfade in allen Rohrlagen, obere/untere WP-Zone, Kühlung,
 Standby, Sensorinvarianz, beide getrennten Speicher, WP-/Ventilbewegung und
 ausdrückliche Fehler bei Teilbatches, blockierten Ports und Textüberläufen. Für
 jede berechnete Kreuzung wird zusätzlich geprüft, dass sämtliche Rohrlagen des
 Brückenbesitzers nach der vollständigen gekreuzten Rohrgruppe gezeichnet werden.
+Zusätzliche Fälle sichern den Vorrang aus zwei `supply`-Anschlussrollen,
+neutrale Behandlung fehlender oder widersprüchlicher Rollen und den ID-Gleichstand
+unabhängig von Eingabereihenfolge und Kühlbetrieb ab.
 
 Ältere Geometrieproben für Ventil und Pufferspeicher verwenden isolierte
 Konfigurationen ohne FM, wenn ihr voller Anlagenaufbau außerhalb der neuen
@@ -202,12 +212,19 @@ segments. All seven connections enter the existing compiler together; its final
 SVG path feeds every pipe layer and flow animation. Active routing fully replaces
 the existing fixed heat-pump bridges with computed paths.
 
-Bridge ownership and SVG paint order use the same rule: the lexicographically
-higher connection ID owns the bridge and its complete pipe group is painted
-later. Shadows, colour, highlights and animation follow that order together,
-so the bridged pipe appears in front. This is a drawing rule, not a priority
-assigned to a fluid or flow direction. Fixed canonical drawing recipes remain
-unchanged.
+Bridge ownership and SVG paint order use the same rule: supply connections take
+precedence over return and neutral connections. A connection is considered supply
+only when both resolved port roles are `supply`. Missing or conflicting roles gain
+no supply priority. Colour, temperature, connection names and operating state do
+not determine priority. The lexicographically higher ID owns the bridge when
+priorities are equal.
+
+The compiler provides the resulting paint order. The bridged pipe is painted
+later as a complete group, including its shadow, colour, highlights and animation.
+Both heat-pump supply pipes therefore own their bridges over the crossing returns
+in the shown heat-pump/FWM example. This is a consistent diagram convention, not
+a calculation of actual three-dimensional pipe placement. Fixed canonical drawing
+recipes remain unchanged.
 
 Existing FWM eligibility and text limits remain. Additional heat-pump requirements:
 type `luft`, no `wmz`, `sg_ready`, `quelle_ein` or `quelle_aus`; `name_wp` up to
@@ -255,13 +272,16 @@ support.
 ### Final verification
 
 `node --check warmwasser-schema-card.js`, `git diff --check` and
-`node --test tests/*.test.cjs` pass: **525 tests**, including all 459 unchanged
+`node --test tests/*.test.cjs` pass: **527 tests**, including all 459 unchanged
 upstream v3.0.1 golden scenarios. New tests cover real bridges, identical paths
 across pipe layers, upper/lower heat-pump zones, cooling, standby, sensor
 invariance, both separate tanks, heat-pump/valve movement, and explicit failures
 for partial batches, blocked ports and label overflow. Every computed crossing
 also verifies that all layers of the bridge owner are painted after the complete
 crossed pipe group.
+Further cases verify priority from two `supply` endpoint roles, neutral handling
+of missing or conflicting roles, and ID tie-breaking independently of input
+order and cooling state.
 
 Earlier valve and buffer-tank geometry probes use isolated configurations without
 an FWM when their full system is outside routing eligibility. Their original
