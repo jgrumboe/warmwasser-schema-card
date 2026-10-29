@@ -1107,17 +1107,23 @@ class WarmwasserSchemaCard extends HTMLElement {
       const error = new Error('Pipe routing unsupported: display label overflow');
       error.code = 'label-overflow'; throw error;
     }
+    const primaryPipes = {};
+    const primaryPipe = (id, legacyPath, color, on, duration) => {
+      const svg = rohr(routes ? routes[id].path : legacyPath, color, on, duration);
+      if (routes) { primaryPipes[id] = svg; return ''; }
+      return svg;
+    };
     if (FM) {
       const fs = point(model.connections['fm-supply'].from), fe = point(model.connections['fm-supply'].to);
       const fr = point(model.connections['fm-return'].from), ft = point(model.connections['fm-return'].to);
-      o += rohr(routes ? routes['fm-supply'].path : `M${fs.x} ${fs.y}H${fe.x}${fe.y !== fs.y ? `V${fe.y}` : ''}`, F.warm, fm_on);
+      o += primaryPipe('fm-supply', `M${fs.x} ${fs.y}H${fe.x}${fe.y !== fs.y ? `V${fe.y}` : ''}`, F.warm, fm_on);
       // Separate tanks need the fresh-water return on the hot-water tank,
       // while shared tanks retain the bottom connection.
       const radius = Math.min(8, Math.max(0, (ft.y - fr.y) / 2));
       const fmRuecklauf = SPLIT
         ? `M${fr.x} ${fr.y}H${315 + radius}Q315 ${fr.y} 315 ${fr.y + radius}V${ft.y - radius}Q315 ${ft.y} ${315 - radius} ${ft.y}H${ft.x}`
         : `M${fr.x} ${fr.y}H458Q466 90 466 98V382Q466 390 458 390H${ft.x + 8}Q${ft.x} 390 ${ft.x} 382V${ft.y}`;
-      o += rohr(routes ? routes['fm-return'].path : fmRuecklauf, F.kalt, fm_on);
+      o += primaryPipe('fm-return', fmRuecklauf, F.kalt, fm_on);
     }
     if (WP) {
       const returnTee = HK ? model.junctions[model.connections['wp-lower-return'].via[0]] : null;
@@ -1126,9 +1132,9 @@ class WarmwasserSchemaCard extends HTMLElement {
       const wvp = point(model.connections['wp-valve-return'].from), wr = point(model.connections['wp-valve-return'].to);
       const ws = point(model.connections['wp-upper-supply'].from), wst = point(model.connections['wp-upper-supply'].to);
       const wl = point(model.connections['wp-lower-supply'].from), wlt = point(model.connections['wp-lower-supply'].to);
-      o += rohr(routes ? routes['wp-upper-return'].path : `M${wo.x} ${wo.y}H252Q262 ${y_bo} 262 ${y_bo + 10}V${wv.y}${wv.x !== 262 ? `H${wv.x}` : ''}`, CK, wpO, tO);
-      o += rohr(routes ? routes['wp-lower-return'].path : `M${wu.x} ${wu.y}${returnTee && returnTee.y !== wu.y ? `V${returnTee.y}` : ''}H252Q262 ${returnTee ? returnTee.y : y_bu} 262 ${(returnTee ? returnTee.y : y_bu) - 10}V${wvu.y}${wvu.x !== 262 ? `H${wvu.x}` : ''}`, CK, wpU, tU);
-      o += rohr(routes ? routes['wp-valve-return'].path : `M${wvp.x} ${wvp.y}H${wr.x}${wr.y !== wvp.y ? `V${wr.y}` : ''}`, CK, wp_on);
+      o += primaryPipe('wp-upper-return', `M${wo.x} ${wo.y}H252Q262 ${y_bo} 262 ${y_bo + 10}V${wv.y}${wv.x !== 262 ? `H${wv.x}` : ''}`, CK, wpO, tO);
+      o += primaryPipe('wp-lower-return', `M${wu.x} ${wu.y}${returnTee && returnTee.y !== wu.y ? `V${returnTee.y}` : ''}H252Q262 ${returnTee ? returnTee.y : y_bu} 262 ${(returnTee ? returnTee.y : y_bu) - 10}V${wvu.y}${wvu.x !== 262 ? `H${wvu.x}` : ''}`, CK, wpU, tU);
+      o += primaryPipe('wp-valve-return', `M${wvp.x} ${wvp.y}H${wr.x}${wr.y !== wvp.y ? `V${wr.y}` : ''}`, CK, wp_on);
       // Bridge the fresh-water return where it crosses the hot-water charging pipe.
       const wwLadung = FM && SPLIT && y_bo - 14 > 128
         ? 'H323A8 8 0 0 1 307 128'
@@ -1138,11 +1144,11 @@ class WarmwasserSchemaCard extends HTMLElement {
         ? `V${fmY + 4}A4 4 0 0 1 300 ${fmY - 4}` : '';
       const meter = model.connections['wp-upper-supply'].via.length ? model.junctions[model.connections['wp-upper-supply'].via[0]] : null;
       const meterDetour = meter && (meter.x !== 300 || meter.y > 120 || meter.y < y_ro + 8) ? `V${meter.y}H${meter.x}H300` : '';
-      o += rohr(routes ? routes['wp-upper-supply'].path : `M${ws.x} ${ws.y}V136Q350 128 342 128${wwLadung}Q300 128 300 120${verticalBridge}${meterDetour}V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H${wst.x}${wst.y !== y_ro ? `V${wst.y}` : ''}`, CW, wpO, tO);
+      o += primaryPipe('wp-upper-supply', `M${ws.x} ${ws.y}V136Q350 128 342 128${wwLadung}Q300 128 300 120${verticalBridge}${meterDetour}V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H${wst.x}${wst.y !== y_ro ? `V${wst.y}` : ''}`, CW, wpO, tO);
       const sj = HK ? model.junctions[model.connections['wp-lower-supply'].via[0]] : null;
       // The tees lie on these continuous paths; their explicit via references
       // record incidence without changing the legacy SVG paint order.
-      o += rohr(routes ? routes['wp-lower-supply'].path : `M${wl.x} ${wl.y}${sj && sj.y !== wl.y ? `V${sj.y}` : ''}H270A8 8 0 0 0 254 ${sj ? sj.y : y_ru}H${wlt.x}${wlt.y !== (sj ? sj.y : y_ru) ? `V${wlt.y}` : ''}`, CW, wpU, tU);
+      o += primaryPipe('wp-lower-supply', `M${wl.x} ${wl.y}${sj && sj.y !== wl.y ? `V${sj.y}` : ''}H270A8 8 0 0 0 254 ${sj ? sj.y : y_ru}H${wlt.x}${wlt.y !== (sj ? sj.y : y_ru) ? `V${wlt.y}` : ''}`, CW, wpU, tU);
       if (QS) {
         const qon = wp_on || (W.quelle_pumpe ? ON(W.quelle_pumpe) : false);
         const ia = point(model.connections['source-in'].from), ib = point(model.connections['source-in'].to);
@@ -1156,6 +1162,9 @@ class WarmwasserSchemaCard extends HTMLElement {
         else o += rohr(`M${ib.x} ${ib.y}V399A9 9 0 0 0 400 381V${ia.y}${ia.x !== 400 ? `H${ia.x}` : ''}`, F.quelle, qon) + rohr(`M${ob.x} ${ob.y}V381A9 9 0 0 1 430 399V${oa.y}${oa.x !== 430 ? `H${oa.x}` : ''}`, F.quelle, qon);
       }
     }
+    // The compiler assigns bridges to the higher lexicographic ID. Paint whole
+    // pipe groups, including animation, in that order so each bridge stays on top.
+    if (routes) for (const id of Object.keys(primaryPipes).sort()) o += primaryPipes[id];
     const TWc = c.trinkwasser;
     if (TW) {
       const domesticOffset = model.components['domestic-boundary'].origin.y - model.components['domestic-boundary'].baseOrigin.y;

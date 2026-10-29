@@ -28,6 +28,26 @@ test('moved FM and Luft-WP share one batch across all tank types', () => {
     assert.ok(Object.values(results).some(r => /A4 4/.test(r.path)), `${type}: expected a real bridge`);
   }
 });
+test('each crossing bridge is painted after every layer of the crossing pipe', () => {
+  for (const type of ['getrennt','schicht','trennblech']) {
+    const c=fixture(type); c._model.components.fm.origin.x += type === 'getrennt' ? 60 : 30; c._model.components.fm.origin.y += 15;
+    c._hass.states['sensor.valve'].state='50';
+    const results=routed(c), svg=c._render();
+    assert.deepEqual(plain(route(c._model,[...ids].reverse())),plain(results));
+    let bridges=0;
+    for (const [id, routeResult] of Object.entries(results)) for (const crossing of routeResult.crossings) {
+      if (!crossing.bridge) continue;
+      bridges++;
+      const other=results[crossing.otherId];
+      const ownLayers=['w0','w1','w2','w3'].map(layer=>svg.indexOf(`d="${routeResult.path}" class="${layer}"`));
+      const otherLayers=['w0','w1','w2','w3'].map(layer=>svg.indexOf(`d="${other.path}" class="${layer}"`));
+      assert.ok(ownLayers.every(i=>i>=0),`${type}: ${id} layers`);
+      assert.ok(otherLayers.every(i=>i>=0),`${type}: ${crossing.otherId} layers`);
+      assert.ok(Math.min(...ownLayers)>Math.max(...otherLayers),`${type}: ${id} bridge must paint after ${crossing.otherId}`);
+    }
+    assert.ok(bridges,`${type}: expected crossings`);
+  }
+});
 test('WP operating states alter animation, not geometry, including cooling and standby', () => {
   const c = fixture('schicht'); c._model.components.fm.origin.x += 30; c._model.components.fm.origin.y += 15;
   const baseline = routed(c); let previous;
