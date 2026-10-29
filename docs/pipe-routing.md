@@ -109,6 +109,10 @@ alle drei freigegebenen Speichertypen mit verschobenem FM geprüft; Rohrlagen un
 Animation verwenden identische `d`-Attribute, Abschalten der Pumpe entfernt die
 Strömungsanimation und ein blockierter Anschluss zeigt `blocked-port`.
 
+Die [folgende WP/FM-Erweiterung](complex-pipe-routing.md) nimmt alle sieben
+äußeren Primärleitungen gemeinsam auf. Die nachstehende Abgrenzung beschreibt
+den ursprünglichen Umfang von PR #4.
+
 Für WP/FM-Kombinationen muss mindestens die obere WP-Ladeleitung mit in denselben
 Kreuzungsdurchlauf aufgenommen werden; ihre heutigen festen Brücken dürfen nicht
 unabhängig stehen bleiben. Danach folgen weitere äußere Kreise, eigene Compiler
@@ -217,6 +221,10 @@ blocking issues within the documented scope. Browser checks covered all three
 supported tank types with a moved FWM: pipe layers and animation had identical
 `d` attributes, switching the pump off removed the flow animation, and a blocked
 port reported `blocked-port`.
+
+The [heat-pump/FWM follow-up](complex-pipe-routing.md) includes all seven external
+primary connections together. The following boundary describes the original
+scope of PR #4.
 
 Heat-pump/FWM configurations must include at least the upper heat-pump charging
 pipe in the same crossing pass; its existing fixed bridges cannot remain
