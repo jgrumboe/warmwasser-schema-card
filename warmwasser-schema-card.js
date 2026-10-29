@@ -133,6 +133,274 @@ function patch(a, b) {
 }
 
 /* ======================================================================== */
+// Internal diagram template. Ports use local coordinates; a shared coordinate does
+// not create an edge. Boundary components identify connections outside this diagram.
+function diagramModel(c) {
+  const split = c.typ === 'getrennt', tt = c.typ === 'kombi' || c.typ === 'hygiene';
+  const fm = !tt && !!(c.fm || c.zirkulationspumpe), wp = !!c.wp, hk = c.heizkreise.length > 0, weiche = hk && !!c.weiche;
+  const yt = 40 + 310 * clamp(c.trennung, 35, 70) / 100, gap = split ? 32 : 18;
+  const bo = yt - gap, ru = yt + gap, bu = 340, ym = (ru + 338) / 2;
+  const fmHeater = split && !!c.heizstab_oben && !!(c.fm || c.zirkulationspumpe);
+  const ro = fmHeater ? Math.min(70, bo - 54) : 70;
+  const nominalHeaterY = (ro + bo) / 2;
+  const heaterY = fmHeater && Math.abs(nominalHeaterY - (bo - 14)) < 18 ? (ro + bo - 14) / 2 : nominalHeaterY;
+  const components = {}, junctions = {}, connections = {};
+  function component(id, x, y, width, height, parent = null) {
+    if (components[id]) throw new Error(`Duplicate component: ${id}`);
+    const origin = { x, y }, item = components[id] = { id, origin, baseOrigin: { x, y }, bounds: { x: 0, y: 0, width, height }, ports: {} };
+    if (parent) {
+      item.parent = parent.id; item.localOrigin = { x: x - parent.origin.x, y: y - parent.origin.y };
+      Object.defineProperties(origin, {
+        x: { enumerable: true, get: () => parent.origin.x + item.localOrigin.x, set: v => { item.localOrigin.x = v - parent.origin.x; } },
+        y: { enumerable: true, get: () => parent.origin.y + item.localOrigin.y, set: v => { item.localOrigin.y = v - parent.origin.y; } },
+      });
+    }
+    return item;
+  }
+  function port(comp, id, x, y, direction, medium, role, rect) {
+    if (comp.ports[id]) throw new Error(`Duplicate port: ${comp.id}.${id}`);
+    comp.ports[id] = { id, x: x - comp.origin.x, y: y - comp.origin.y, direction, medium, role,
+      stub: rect && { x: rect[0] - comp.origin.x, y: rect[1] - comp.origin.y, width: rect[2], height: rect[3] } };
+    return `${comp.id}.${id}`;
+  }
+  function junction(id, x, y, parent = null, medium = 'heating-water', kind = 'tee') {
+    if (junctions[id]) throw new Error(`Duplicate junction: ${id}`);
+    const j = junctions[id] = { id, x, y, medium, kind };
+    if (parent) {
+      j.parent = parent.id; j.local = { x: x - parent.origin.x, y: y - parent.origin.y };
+      Object.defineProperties(j, {
+        x: { enumerable: true, get: () => parent.origin.x + j.local.x, set: v => { j.local.x = v - parent.origin.x; } },
+        y: { enumerable: true, get: () => parent.origin.y + j.local.y, set: v => { j.local.y = v - parent.origin.y; } },
+      });
+    }
+    return id;
+  }
+  function connection(id, from, to, via = []) {
+    if (connections[id]) throw new Error(`Duplicate connection: ${id}`);
+    connections[id] = { id, from, to, via };
+  }
+  const hot = component(split ? 'hot-tank' : 'tank', 72, 14, 130, split ? yt - 22 : 360);
+  const buffer = split ? component('buffer-tank', 72, yt + 8, 130, 366 - yt) : hot;
+  const p = (comp, id, x, y, dir, role, rect, medium = 'heating-water') => port(comp, id, x, y, dir, medium, role, rect);
+  component('tank-feet', 93, 362, 88, 22, buffer);
+  if (tt) component('domestic-inner', 100, 18, 76, 334, hot);
+  if (c.solar) component('solar-exchanger', 110, 348, 76, 26, buffer);
+  if (c.heizstab_oben) component('upper-heater', 106, heaterY - 13, 108, 41, hot);
+  if (c.heizstab_unten) component('lower-heater', 106, (ru + bu) / 2 - 13, 108, 41, buffer);
+  c.fuehler.forEach((f, i) => {
+    const pos = isNum(f.hoehe) ? Number(f.hoehe) : ((i + 0.5) * 100) / c.fuehler.length;
+    const y = 40 + 310 * clamp(pos, 0, 100) / 100;
+    component(`sensor-${i}`, 2, y - 15, 74, 30, split && y > yt ? buffer : hot);
+  });
+
+  const tank = {};
+  if (fm) tank.fmSupply = p(hot, 'fm-supply', 206, 46, 'right', 'supply', [198, 40, 14, 12]);
+  if (wp) {
+    tank.wpSupply = p(hot, 'wp-supply', 206, ro, 'right', 'supply', [198, ro - 6, 14, 12]);
+    tank.wpReturn = p(hot, 'wp-return', 206, bo, 'right', 'return', [198, bo - 6, 14, 12]);
+  }
+  if (wp || hk) {
+    tank.lowerSupply = p(buffer, 'lower-supply', 206, ru, 'right', 'supply', [198, ru - 6, 14, 12]);
+    tank.lowerReturn = p(buffer, 'lower-return', 206, bu, 'right', 'return', [198, bu - 6, 14, 12]);
+  }
+  if (c.kamin) {
+    const ts = p(buffer, 'additional-supply', 70, ru, 'left', 'supply', [62, ru - 6, 14, 12]);
+    const tr = p(buffer, 'additional-return', 70, bu, 'left', 'return', [62, bu - 6, 14, 12]);
+    const device = component('additional-heat', -150, -30, 90, 394);
+    const ds = p(device, 'supply', -58, ru, 'right', 'supply', [-64, ru - 6, 10, 12]);
+    const dr = p(device, 'return', -58, bu, 'right', 'return', [-64, bu - 6, 10, 12]);
+    connection('additional-supply', ds, ts);
+    if (c.kamin.wmz) {
+      const meter = component('additional-meter', -36, ru - 6, 12, 12, device);
+      connections['additional-supply'].via.push(junction('additional-meter-point', -30, ru, meter, 'heating-water', 'meter'));
+    }
+    if (c.kamin.typ === 'fernwaerme') {
+      const boundary = component('district-boundary', -120, -26, 30, 1); boundary.boundary = true;
+      const a = p(boundary, 'supply', -120, -26, 'top', 'supply', null, 'district-loop');
+      const b = p(boundary, 'return', -90, -26, 'top', 'return', null, 'district-loop');
+      const d = p(device, 'district-supply', -120, 150, 'top', 'supply', null, 'district-loop');
+      const e = p(device, 'district-return', -90, 150, 'top', 'return', null, 'district-loop');
+      connection('district-supply', a, d); connection('district-return', e, b);
+    }
+    if (c.kamin.pumpe) {
+      const pump = component('additional-pump', -34, bu - 10, 20, 20);
+      const a = p(pump, 'in', -14, bu, 'right', 'return'), b = p(pump, 'out', -34, bu, 'left', 'return');
+      connection('additional-return-tank', tr, a); connection('additional-pump-through', a, b); connection('additional-return-device', b, dr);
+    } else connection('additional-return', tr, dr);
+  }
+  if (c.solar) {
+    const ts = p(buffer, 'solar-supply', 110, 374, 'bottom', 'supply', [104, 368, 12, 8], 'solar-loop');
+    const tr = p(buffer, 'solar-return', 122, 374, 'bottom', 'return', [116, 368, 12, 8], 'solar-loop');
+    const sx = c.kamin ? -240 : -85, collector = component('solar-collector', sx, -22, 87, 286);
+    const cs = p(collector, 'supply', sx + 52, 36, 'bottom', 'supply', null, 'solar-loop');
+    const cr = p(collector, 'return', sx + 8, 36, 'bottom', 'return', null, 'solar-loop');
+    connection('solar-supply', cs, ts); connection('solar-coil', ts, tr);
+    if (c.solar.pumpe) {
+      const pump = component('solar-pump', sx - 2, 190, 20, 20);
+      const a = p(pump, 'in', sx + 8, 210, 'bottom', 'return', null, 'solar-loop');
+      const b = p(pump, 'out', sx + 8, 190, 'top', 'return', null, 'solar-loop');
+      connection('solar-return-tank', tr, a); connection('solar-pump-through', a, b); connection('solar-return-collector', b, cr);
+    } else connection('solar-return', tr, cr);
+  }
+  if (fm) {
+    tank.fmReturn = split ? p(hot, 'fm-return', 206, bo - 14, 'right', 'return', [198, bo - 20, 12, 12])
+      : p(hot, 'fm-return', 137, 376, 'bottom', 'return', [131, 370, 12, 12]);
+    const f = component('fm', 340, 14, 110, 90);
+    const fs = p(f, 'supply', 336, 46, 'left', 'supply', [332, 40, 10, 12]);
+    const fr = split ? p(f, 'return', 336, 90, 'left', 'return', [332, 84, 10, 12])
+      : p(f, 'return', 452, 90, 'right', 'return', [448, 84, 10, 12]);
+    p(f, 'cold-water', 362, 12, 'top', 'inlet', [356, 8, 12, 10], 'domestic-water');
+    p(f, 'hot-water', 428, 12, 'top', 'outlet', [422, 8, 12, 10], 'domestic-water');
+    connection('fm-supply', tank.fmSupply, fs); connection('fm-return', fr, tank.fmReturn);
+  }
+  if (tt) {
+    p(hot, 'cold-water', 110, 18, 'top', 'inlet', [104, 12, 12, 8], 'domestic-water');
+    p(hot, 'hot-water', 164, 18, 'top', 'outlet', [158, 12, 12, 8], 'domestic-water');
+  }
+  if (wp) {
+    const w = component('wp', 330, 150, 120, 222), v = component('valve', 228, ym - 14, 49, 28);
+    const ws = p(w, 'upper-supply', 350, 146, 'top', 'supply', [344, 142, 12, 10]);
+    const wl = p(w, 'lower-supply', 326, ru, 'left', 'supply', [322, ru - 6, 10, 12]);
+    const wr = p(w, 'return', 326, ym, 'left', 'return', [322, ym - 6, 10, 12]);
+    const vo = p(v, 'upper', 262, ym - 14, 'top', 'return');
+    const vu = p(v, 'lower', 262, ym + 14, 'bottom', 'return');
+    const vw = p(v, 'wp', 277, ym, 'right', 'return');
+    connection('wp-upper-supply', ws, tank.wpSupply);
+    if (c.wp.wmz) {
+      const meter = component('wp-meter', 294, 94, 12, 12, w);
+      connections['wp-upper-supply'].via.push(junction('wp-meter-point', 300, 100, meter, 'heating-water', 'meter'));
+    }
+    connection('wp-upper-return', tank.wpReturn, vo);
+    connection('wp-valve-return', vw, wr);
+    if (hk) { junction('supply-tee', 295, ru); junction('return-tee', 240, bu); }
+    connection('wp-lower-supply', wl, tank.lowerSupply, hk ? ['supply-tee'] : []);
+    connection('wp-lower-return', tank.lowerReturn, vu, hk ? ['return-tee'] : []);
+  }
+  if (fm || tt) {
+    const tk = fm ? 362 : 110, tw = fm ? 428 : 164, bottom = fm ? 12 : 18;
+    const boundary = component('domestic-boundary', tk, -26, tw - tk, 1); boundary.boundary = true;
+    const cold = p(boundary, 'cold', tk, -26, 'top', 'inlet', null, 'domestic-water');
+    const warm = p(boundary, 'hot', tw, -26, 'top', 'outlet', null, 'domestic-water');
+    const device = fm ? 'fm' : hot.id;
+    if (c.zirkulationspumpe) {
+      const cj = junction('domestic-cold-tee', tk, -6, null, 'domestic-water');
+      const wj = junction('domestic-hot-tee', tw, -6, null, 'domestic-water');
+      connection('domestic-cold', cold, `${device}.cold-water`, [cj]);
+      connection('domestic-hot', `${device}.hot-water`, warm, [wj]);
+      const pump = component('circulation-pump', (tk + tw) / 2 - 10, -16, 20, 20);
+      const a = p(pump, 'in', (tk + tw) / 2 + 10, -6, 'right', 'inlet', null, 'domestic-water');
+      const b = p(pump, 'out', (tk + tw) / 2 - 10, -6, 'left', 'outlet', null, 'domestic-water');
+      connection('circulation-hot', wj, a); connection('circulation-pump-through', a, b); connection('circulation-cold', b, cj);
+    } else {
+      connection('domestic-cold', cold, `${device}.cold-water`);
+      connection('domestic-hot', `${device}.hot-water`, warm);
+    }
+    if (c.trinkwasser && c.trinkwasser.zaehler) {
+      const meter = component('domestic-meter', tk - 6, -24, 12, 12, boundary);
+      connections['domestic-cold'].via.unshift(junction('domestic-meter-point', tk, -18, meter, 'domestic-water', 'meter'));
+    }
+    if (tt) connection('domestic-exchanger', `${device}.cold-water`, `${device}.hot-water`);
+  }
+  if (wp && ['sole', 'wasser'].includes(c.wp.typ)) {
+    const w = components.wp, source = component('heat-source', 382, 404, 100, 156);
+    const wa = p(w, 'source-in', 400, 372, 'bottom', 'inlet', [394, 368, 12, 8], 'source-loop');
+    const wb = p(w, 'source-out', 430, 372, 'bottom', 'outlet', [424, 368, 12, 8], 'source-loop');
+    const a = p(source, 'in', 400, c.wp.typ === 'sole' ? 540 : 535, 'top', 'inlet', null, 'source-loop');
+    const b = p(source, 'out', 430, c.wp.typ === 'sole' ? 540 : 535, 'top', 'outlet', null, 'source-loop');
+    connection('source-in', wa, a); connection('source-out', b, wb);
+    if (c.wp.typ === 'sole') connection('source-ground-loop', a, b);
+  }
+  if (hk) {
+    const dy = weiche ? 70 : 0, yy = 420 + dy, yr = 448 + dy, ymix = 482 + dy, ye = 548 + dy;
+    const positions = HK_X.slice(0, c.heizkreise.length).sort((a, b) => a - b);
+    const left = Math.min(...positions) - 40;
+    const manifold = component('manifolds', left, yy, (weiche ? 372 : 317) - left, yr - yy);
+    const supply = junction('manifold-primary-supply', weiche ? 356 : 295, yy, manifold, 'heating-water', weiche ? 'endpoint' : 'tee');
+    const ret = junction('manifold-primary-return', weiche ? 372 : 312, yr, manifold, 'heating-water', weiche ? 'endpoint' : 'tee');
+    const sl = p(manifold, 'supply-left', left, yy, 'left', 'supply');
+    const sr = weiche ? supply : p(manifold, 'supply-right', 300, yy, 'right', 'supply');
+    const rl = p(manifold, 'return-left', left, yr, 'left', 'return');
+    const rr = weiche ? ret : p(manifold, 'return-right', 317, yr, 'right', 'return');
+    const sj = [], rj = [];
+    positions.forEach((x, i) => {
+      const branch = component(`heating-circuit-${i}`, x - 22, ye - 9, 44, 60);
+      const bs = p(branch, 'supply', x - 16, ye, 'top', 'supply');
+      const br = p(branch, 'return', x + 16, ye, 'top', 'return');
+      const sv = junction(`manifold-supply-${i}`, x - 16, yy, manifold);
+      const rv = junction(`manifold-return-${i}`, x + 16, yr, manifold);
+      sj.push(sv); rj.push(rv);
+      if (c.heizkreise[i].mischer) {
+        const mixer = component(`heating-mixer-${i}`, x - 50, ymix - 14, 49, 28, branch);
+        const mi = p(mixer, 'supply', x - 16, ymix - 14, 'top', 'supply');
+        const mo = p(mixer, 'mixed', x - 16, ymix + 14, 'bottom', 'supply');
+        const mb = p(mixer, 'bypass', x - 1, ymix, 'right', 'return');
+        const tee = junction(`heating-return-tee-${i}`, x + 16, ymix, branch);
+        connection(`heating-supply-${i}`, sv, mi);
+        connection(`heating-mixed-${i}`, mo, bs);
+        connection(`heating-return-${i}`, br, rv, [tee]);
+        connection(`heating-bypass-${i}`, tee, mb);
+      } else {
+        connection(`heating-supply-${i}`, sv, bs);
+        connection(`heating-return-${i}`, br, rv);
+      }
+      if (c.heizkreise[i].pumpe) {
+        const pump = component(`heating-pump-${i}`, x - 26, 504 + dy, 20, 20, branch);
+        const a = p(pump, 'in', x - 16, 504 + dy, 'top', 'supply');
+        const b = p(pump, 'out', x - 16, 524 + dy, 'bottom', 'supply');
+        connections[c.heizkreise[i].mischer ? `heating-mixed-${i}` : `heating-supply-${i}`].to = a;
+        connection(`heating-pump-through-${i}`, a, b);
+        connection(`heating-pump-out-${i}`, b, bs);
+      }
+    });
+    // The primary connection may land exactly at the visible rail end.
+    if (weiche) {
+      connection('manifold-supply', sl, supply, sj);
+      connection('manifold-return', rl, ret, rj);
+    } else {
+      connection('manifold-supply', sl, sr, [...sj, supply]);
+      connection('manifold-return', rl, rr, [...rj, ret]);
+    }
+    let hs = supply, hr = ret;
+    if (weiche) {
+      const w = component('separator', 322, 400, 20, 72);
+      const a = p(w, 'primary-supply', 322, 410, 'left', 'supply');
+      const b = p(w, 'primary-return', 322, 462, 'left', 'return');
+      const d = p(w, 'secondary-supply', 342, 410, 'right', 'supply');
+      const e = p(w, 'secondary-return', 342, 462, 'right', 'return');
+      connection('separator-supply', d, supply); connection('separator-return', ret, e); hs = a; hr = b;
+    }
+    connection('hk-supply', wp ? 'supply-tee' : tank.lowerSupply, hs);
+    connection('hk-return', hr, wp ? 'return-tee' : tank.lowerReturn);
+  }
+  const resolve = (ref) => {
+    if (junctions[ref]) return junctions[ref];
+    const [id, name] = ref.split('.');
+    const result = components[id] && components[id].ports[name];
+    if (!result) throw new Error(`Unknown diagram reference: ${ref}`);
+    return result;
+  };
+  for (const edge of Object.values(connections)) {
+    if (resolve(edge.from).medium !== resolve(edge.to).medium) throw new Error(`Medium mismatch: ${edge.id}`);
+    for (const id of edge.via) {
+      if (!junctions[id]) throw new Error(`Unknown junction: ${id}`);
+      if (junctions[id].medium !== resolve(edge.from).medium) throw new Error(`Medium mismatch: ${edge.id} via ${id}`);
+    }
+  }
+  return { components, junctions, connections, geometry: { yt, ro, bo, ru, bu, ym, heaterY } };
+}
+function diagramPort(model, reference) {
+  if (model.junctions[reference]) return model.junctions[reference];
+  const [id, name] = reference.split('.'), component = model.components[id], port = component && component.ports[name];
+  if (!port) throw new Error(`Unknown port: ${reference}`);
+  return { x: component.origin.x + port.x, y: component.origin.y + port.y };
+}
+function diagramStub(model, reference) {
+  const [id, name] = reference.split('.'), component = model.components[id], port = component && component.ports[name];
+  if (!port || !port.stub) throw new Error(`Unknown stub: ${reference}`);
+  const r = port.stub;
+  return [component.origin.x + r.x, component.origin.y + r.y, r.width, r.height];
+}
+
 class WarmwasserSchemaCard extends HTMLElement {
   static getConfigElement() { return document.createElement('warmwasser-schema-card-editor'); }
   static getStubConfig() { return { speicher: { typ: 'trennblech' }, fuehler: [] }; }
@@ -168,6 +436,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     c.heizkreise = (config.heizkreise || []).filter(hasEnt).slice(0, 6);
     c.energie = (config.energie || []).filter((e) => e && isEnt(e.entity));
     this._cfg = c;
+    this._model = diagramModel(c);
     this._ents = [...new Set(collect(c, []))];
     this._key = null;
     if (this._hass) this._update();
@@ -224,13 +493,23 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* ---------- Speicher ---------- */
     const fl = c.fuehler.map((f, i) => {
       const pos = isNum(f.hoehe) ? Number(f.hoehe) : ((i + 0.5) * 100) / c.fuehler.length;
-      return { name: f.name, entity: f.entity, wert: S(f.entity), y: 40 + (310 * clamp(pos, 0, 100)) / 100 };
+      return { name: f.name, entity: f.entity, index: i, wert: S(f.entity), y: 40 + (310 * clamp(pos, 0, 100)) / 100 };
     }).sort((a, b) => a.y - b.y);
     const TYP = c.typ, TG = TYP === 'trennblech', SPLIT = TYP === 'getrennt', TT = TYP === 'kombi' || TYP === 'hygiene';
-    const y_t = 40 + (310 * clamp(c.trennung, 35, 70)) / 100, gap = SPLIT ? 32 : 18;
-    const y_bo = y_t - gap, y_ru = y_t + gap, y_bu = 340, y_m = (y_ru + 338) / 2;
-    const fmHeater = SPLIT && !!c.heizstab_oben && !!(c.fm || c.zirkulationspumpe);
-    const y_ro = fmHeater ? Math.min(70, y_bo - 54) : 70;
+    const model = this._model, geo = model.geometry;
+    const y_t = geo.yt, y_ro = geo.ro, y_bo = geo.bo, y_ru = geo.ru, y_bu = geo.bu, y_m = geo.ym;
+    const point = (ref) => diagramPort(model, ref);
+    // Canonical symbol recipes stay byte-identical at the configured origin.
+    const openComponent = (id) => {
+      const b = model.components[id], dx = b.origin.x - b.baseOrigin.x, dy = b.origin.y - b.baseOrigin.y;
+      return dx || dy ? `<g transform="translate(${dx} ${dy})">` : '';
+    };
+    const closeComponent = (id) => {
+      const b = model.components[id];
+      return b.origin.x !== b.baseOrigin.x || b.origin.y !== b.baseOrigin.y ? '</g>' : '';
+    };
+    const portStub = (ref) => stub(...diagramStub(model, ref));
+    const tankId = SPLIT ? 'hot-tank' : 'tank', bufferId = SPLIT ? 'buffer-tank' : 'tank';
     const ueber = fl.filter((f) => f.y < y_t), unter = fl.filter((f) => f.y > y_t);
     const w_ueber = ueber.length ? ueber[ueber.length - 1].wert : unter.length ? unter[0].wert : 'x';
     const w_unter = unter.length ? unter[0].wert : w_ueber;
@@ -277,7 +556,10 @@ class WarmwasserSchemaCard extends HTMLElement {
 
     /* ---------- Frischwassermodul / Trinkwasser ---------- */
     const ZK = !!c.zirkulationspumpe, FMx = c.fm, FM = !TT && !!(FMx || ZK);
-    const TW = FM || TT, tk = FM ? 362 : 110, tw = FM ? 428 : 164, tyb = FM ? 12 : 18, tm = (tk + tw) / 2;
+    const TW = FM || TT;
+    const dc = TW ? point(model.connections['domestic-cold'].from) : null, de = TW ? point(model.connections['domestic-cold'].to) : null;
+    const dh = TW ? point(model.connections['domestic-hot'].from) : null, dw = TW ? point(model.connections['domestic-hot'].to) : null;
+    const tk = TW ? dc.x : 0, tw = TW ? dw.x : 0, tyb = TW ? de.y : 0, tm = (tk + tw) / 2;
     const zirk_on = ZK && ON(c.zirkulationspumpe);
     const zapf = FMx && FMx.durchfluss ? NUM(FMx.durchfluss) > 0.1 : false;
     const fm_on = FMx && FMx.pumpe ? ON(FMx.pumpe) : zapf || zirk_on;
@@ -313,7 +595,7 @@ class WarmwasserSchemaCard extends HTMLElement {
 
     /* ---------- Heizkreise ---------- */
     const W8 = !!c.weiche, dyw = W8 ? 70 : 0;
-    const hkPos = HK_X.slice(0, c.heizkreise.length).sort((a, b) => a - b);
+    const hkPos = c.heizkreise.map((_, i) => model.components[`heating-circuit-${i}`].origin.x + 22);
     const hks = c.heizkreise.map((hk, i) => {
       const MIX = !!hk.mischer, m = MIX ? S(hk.mischer) : 'x';
       const a = MIX && isNum(m) ? (clamp(Number(m), -100, 100) + 100) / 200 : 1;
@@ -330,10 +612,12 @@ class WarmwasserSchemaCard extends HTMLElement {
     });
     const HK = hks.length > 0;
     const hk_fl = hks.filter((x) => x.on).reduce((s, x) => s + x.a, 0);
-    const akt = hks.filter((x) => x.on && x.a > 0.04).map((x) => x.x);
+    const akt = hks.map((x, i) => x.on && x.a > 0.04 ? i : -1).filter((i) => i >= 0);
+    const aktSupply = akt.map((i) => model.junctions[`manifold-supply-${i}`].x);
+    const aktReturn = akt.map((i) => model.junctions[`manifold-return-${i}`].x);
     const td = `animation-duration:${r2(1 / Math.max(hk_fl, 0.04))}s`;
     const hkExtra = HK ? Math.max(0, ...hks.map((x) => x.zeilen.length * 12 + (x.typ ? 26 : 0))) : 0;
-    const bx1 = HK ? Math.min(...hks.map((x) => x.x)) - 40 : 130;
+    const bx1 = HK ? model.components.manifolds.origin.x : 130;
 
     /* ---------- Bausteine ---------- */
     const rohr = (d, cl, f = false, t = 1) =>
@@ -352,10 +636,17 @@ class WarmwasserSchemaCard extends HTMLElement {
       `<path d="M${x - 9} ${y - 14}H${x + 9}L${x} ${y}ZM${x - 9} ${y + 14}H${x + 9}L${x} ${y}ZM${x + 15} ${y - 9}V${y + 9}L${x} ${y}Z" fill="#1f2329" stroke="${cl}" stroke-width="1.6" stroke-linejoin="round"/>` +
       (a !== null ? `<path d="M${x - 9} ${y - 14}H${x + 9}L${x} ${y}Z" fill="${cw}" fill-opacity="${r2(0.1 + 0.8 * a)}"/><path d="M${x + 15} ${y - 9}V${y + 9}L${x} ${y}Z" fill="${ck}" fill-opacity="${r2(0.9 - 0.8 * a)}"/>` : '') +
       `<circle cx="${x}" cy="${y}" r="2.5" fill="${cl}"/>`;
-    const verteiler = (x1, x2, y, cl) =>
-      `<path d="M${x1} ${y}H${x2}" stroke="#000" stroke-opacity=".35" stroke-width="18"/><path d="M${x1} ${y}H${x2}" stroke="${cl}" stroke-width="14"/>` +
-      `<path d="M${x1} ${y - 3}H${x2}" stroke="#fff" stroke-opacity=".25" stroke-width="3"/>` +
-      `<rect x="${x1 - 5}" y="${y - 10}" width="5" height="20" rx="1.5" class="wk"/><rect x="${x2}" y="${y - 10}" width="5" height="20" rx="1.5" class="wk"/>`;
+    const verteiler = (edge, cl) => {
+      const from = point(edge.from), to = point(edge.to);
+      const points = edge.via.map((id) => model.junctions[id]);
+      const route = (offset) => {
+        if (to.y === from.y && points.every((j) => j.y === from.y && j.x >= Math.min(from.x, to.x) && j.x <= Math.max(from.x, to.x))) return `M${from.x} ${from.y + offset}H${to.x}`;
+        return `M${from.x} ${from.y + offset}` + points.map((j) => `H${j.x}V${j.y + offset}`).join('') + `H${to.x}V${to.y + offset}`;
+      };
+      return `<path d="${route(0)}" stroke="#000" stroke-opacity=".35" stroke-width="18"/><path d="${route(0)}" stroke="${cl}" stroke-width="14"/>` +
+        `<path d="${route(-3)}" stroke="#fff" stroke-opacity=".25" stroke-width="3"/>` +
+        `<rect x="${from.x - 5}" y="${from.y - 10}" width="5" height="20" rx="1.5" class="wk"/><rect x="${to.x}" y="${to.y - 10}" width="5" height="20" rx="1.5" class="wk"/>`;
+    };
     const tee = (x, y) => `<circle cx="${x}" cy="${y}" r="5.5" class="wn"/><circle cx="${x - 1.5}" cy="${y - 1.5}" r="1.6" fill="#fff" opacity=".45"/>`;
     const stub = (x, y, w, hh) => `<rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="2" class="wk"/>`;
     const zaehlerSym = (x, y) => `<rect x="${x - 6}" y="${y - 6}" width="12" height="12" rx="2" fill="#2b2f35" stroke="#cfd4da"/><circle cx="${x}" cy="${y}" r="2.6" fill="none" stroke="#cfd4da"/>`;
@@ -397,13 +688,28 @@ class WarmwasserSchemaCard extends HTMLElement {
 
     /* ---------- Abmessungen ---------- */
     const QS = WP && QT !== 'luft';
-    const minX = Math.min(0, K ? -160 : 0, SO ? x0 - 10 : 0, HK ? bx1 - 30 : 0);
+    const baseMinX = Math.min(0, K ? -160 : 0, SO ? x0 - 10 : 0, HK ? bx1 - 30 : 0);
     let unten = HK ? 574 + dyw + hkExtra : SO ? 412 : 400;
     if (QS) unten = Math.max(unten, 566);
-    o += `<svg viewBox="${minX} -30 ${486 - minX} ${unten + 30}"><defs>`;
+    let minX = baseMinX, maxX = 486, minY = -30, maxY = unten;
+    // Internal origin changes are used by tests and must not clip moved symbols.
+    for (const b of Object.values(model.components)) {
+      const dx = b.origin.x - b.baseOrigin.x, dy = b.origin.y - b.baseOrigin.y;
+      if (dx || dy) {
+        minX = Math.min(minX, baseMinX + dx); maxX = Math.max(maxX, 486 + dx);
+        minY = Math.min(minY, -30 + dy); maxY = Math.max(maxY, unten + dy);
+      }
+    }
+    o += `<svg viewBox="${minX} ${minY} ${maxX - minX} ${maxY - minY}"><defs>`;
     o += `<linearGradient id="wwTemp" gradientUnits="userSpaceOnUse" x1="0" y1="14" x2="0" y2="374"><stop offset="0" stop-color="${col(stops[0].wert)}"/>` +
       stops.map((st) => `<stop offset="${Math.round(((st.y - 14) / 360) * 1000) / 1000}" stop-color="${col(st.wert)}"/>`).join('') +
       `<stop offset="1" stop-color="${col(stops[stops.length - 1].wert)}"/></linearGradient>`;
+    for (const id of new Set([tankId, bufferId])) {
+      const tank = model.components[id], dy = tank.origin.y - tank.baseOrigin.y;
+      if (dy) o += `<linearGradient id="wwTemp-${id}" gradientUnits="userSpaceOnUse" x1="0" y1="${14 + dy}" x2="0" y2="${374 + dy}"><stop offset="0" stop-color="${col(stops[0].wert)}"/>` +
+        stops.map((st) => `<stop offset="${Math.round(((st.y - 14) / 360) * 1000) / 1000}" stop-color="${col(st.wert)}"/>`).join('') +
+        `<stop offset="1" stop-color="${col(stops[stops.length - 1].wert)}"/></linearGradient>`;
+    }
     o += `<linearGradient id="wwCyl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset=".18" stop-color="#fff" stop-opacity=".12"/><stop offset=".42" stop-color="#fff" stop-opacity="0"/><stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></linearGradient>`;
     o += `<linearGradient id="wwRed" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${F.geraet_hell}"/><stop offset="1" stop-color="${F.geraet_dunkel}"/></linearGradient>`;
     o += `<linearGradient id="wwBox" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".25" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".28"/></linearGradient>`;
@@ -426,136 +732,251 @@ class WarmwasserSchemaCard extends HTMLElement {
 
     /* ---------- Rohre ---------- */
     if (FM) {
-      o += rohr('M206 46H336', F.warm, fm_on);
+      const fs = point(model.connections['fm-supply'].from), fe = point(model.connections['fm-supply'].to);
+      const fr = point(model.connections['fm-return'].from), ft = point(model.connections['fm-return'].to);
+      o += rohr(`M${fs.x} ${fs.y}H${fe.x}${fe.y !== fs.y ? `V${fe.y}` : ''}`, F.warm, fm_on);
       // Separate tanks need the fresh-water return on the hot-water tank,
       // while shared tanks retain the bottom connection.
-      const fmRuecklaufY = y_bo - 14;
-      const radius = Math.min(8, Math.max(0, (fmRuecklaufY - 90) / 2));
+      const radius = Math.min(8, Math.max(0, (ft.y - fr.y) / 2));
       const fmRuecklauf = SPLIT
-        ? `M336 90H${315 + radius}Q315 90 315 ${90 + radius}V${fmRuecklaufY - radius}Q315 ${fmRuecklaufY} ${315 - radius} ${fmRuecklaufY}H206`
-        : 'M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376';
+        ? `M${fr.x} ${fr.y}H${315 + radius}Q315 ${fr.y} 315 ${fr.y + radius}V${ft.y - radius}Q315 ${ft.y} ${315 - radius} ${ft.y}H${ft.x}`
+        : `M${fr.x} ${fr.y}H458Q466 90 466 98V382Q466 390 458 390H${ft.x + 8}Q${ft.x} 390 ${ft.x} 382V${ft.y}`;
       o += rohr(fmRuecklauf, F.kalt, fm_on);
     }
     if (WP) {
-      o += rohr(`M206 ${y_bo}H252Q262 ${y_bo} 262 ${y_bo + 10}V${y_m - 14}`, CK, wpO, tO);
-      o += rohr(`M206 ${y_bu}H252Q262 ${y_bu} 262 ${y_bu - 10}V${y_m + 14}`, CK, wpU, tU);
-      o += rohr(`M277 ${y_m}H326`, CK, wp_on);
+      const returnTee = HK ? model.junctions[model.connections['wp-lower-return'].via[0]] : null;
+      const wo = point(model.connections['wp-upper-return'].from), wv = point(model.connections['wp-upper-return'].to);
+      const wu = point(model.connections['wp-lower-return'].from), wvu = point(model.connections['wp-lower-return'].to);
+      const wvp = point(model.connections['wp-valve-return'].from), wr = point(model.connections['wp-valve-return'].to);
+      const ws = point(model.connections['wp-upper-supply'].from), wst = point(model.connections['wp-upper-supply'].to);
+      const wl = point(model.connections['wp-lower-supply'].from), wlt = point(model.connections['wp-lower-supply'].to);
+      o += rohr(`M${wo.x} ${wo.y}H252Q262 ${y_bo} 262 ${y_bo + 10}V${wv.y}${wv.x !== 262 ? `H${wv.x}` : ''}`, CK, wpO, tO);
+      o += rohr(`M${wu.x} ${wu.y}${returnTee && returnTee.y !== wu.y ? `V${returnTee.y}` : ''}H252Q262 ${returnTee ? returnTee.y : y_bu} 262 ${(returnTee ? returnTee.y : y_bu) - 10}V${wvu.y}${wvu.x !== 262 ? `H${wvu.x}` : ''}`, CK, wpU, tU);
+      o += rohr(`M${wvp.x} ${wvp.y}H${wr.x}${wr.y !== wvp.y ? `V${wr.y}` : ''}`, CK, wp_on);
       // Bridge the fresh-water return where it crosses the hot-water charging pipe.
       const wwLadung = FM && SPLIT && y_bo - 14 > 128
         ? 'H323A8 8 0 0 1 307 128'
         : 'H308';
-      const fmY = y_bo - 14;
+      const fmY = FM && SPLIT ? point(model.connections['fm-return'].to).y : y_bo - 14;
       const verticalBridge = FM && SPLIT && fmY >= y_ro + 12 && fmY <= 116
         ? `V${fmY + 4}A4 4 0 0 1 300 ${fmY - 4}` : '';
-      o += rohr(`M350 146V136Q350 128 342 128${wwLadung}Q300 128 300 120${verticalBridge}V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H206`, CW, wpO, tO);
-      o += rohr(`M326 ${y_ru}H270A8 8 0 0 0 254 ${y_ru}H206`, CW, wpU, tU);
+      const meter = model.connections['wp-upper-supply'].via.length ? model.junctions[model.connections['wp-upper-supply'].via[0]] : null;
+      const meterDetour = meter && (meter.x !== 300 || meter.y > 120 || meter.y < y_ro + 8) ? `V${meter.y}H${meter.x}H300` : '';
+      o += rohr(`M${ws.x} ${ws.y}V136Q350 128 342 128${wwLadung}Q300 128 300 120${verticalBridge}${meterDetour}V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H${wst.x}${wst.y !== y_ro ? `V${wst.y}` : ''}`, CW, wpO, tO);
+      const sj = HK ? model.junctions[model.connections['wp-lower-supply'].via[0]] : null;
+      // The tees lie on these continuous paths; their explicit via references
+      // record incidence without changing the legacy SVG paint order.
+      o += rohr(`M${wl.x} ${wl.y}${sj && sj.y !== wl.y ? `V${sj.y}` : ''}H270A8 8 0 0 0 254 ${sj ? sj.y : y_ru}H${wlt.x}${wlt.y !== (sj ? sj.y : y_ru) ? `V${wlt.y}` : ''}`, CW, wpU, tU);
       if (QS) {
         const qon = wp_on || (W.quelle_pumpe ? ON(W.quelle_pumpe) : false);
-        if (QT === 'sole') o += rohr('M400 372V381A9 9 0 0 1 400 399V540Q400 552 415 552Q430 552 430 540V399A9 9 0 0 1 430 381V372', F.quelle, qon);
-        else o += rohr('M400 535V399A9 9 0 0 0 400 381V372', F.quelle, qon) + rohr('M430 372V381A9 9 0 0 1 430 399V535', F.quelle, qon);
+        const ia = point(model.connections['source-in'].from), ib = point(model.connections['source-in'].to);
+        const oa = point(model.connections['source-out'].from), ob = point(model.connections['source-out'].to);
+        if (QT === 'sole') {
+          const ground = model.connections['source-ground-loop'], gs = point(ground.from), ge = point(ground.to);
+          const toGround = gs.x !== ib.x || gs.y !== ib.y ? `H${gs.x}V${gs.y}` : '';
+          const fromGround = ge.x !== oa.x || ge.y !== oa.y ? `H${oa.x}V${oa.y}` : '';
+          o += rohr(`M${ia.x} ${ia.y}V381A9 9 0 0 1 400 399V${ib.y}${ib.x !== 400 ? `H${ib.x}` : ''}${toGround}Q${gs.x} ${gs.y + 12} ${(gs.x + ge.x) / 2} ${gs.y + 12}Q${ge.x} ${ge.y + 12} ${ge.x} ${ge.y}${fromGround}V399A9 9 0 0 1 430 381V${ob.y}${ob.x !== 430 ? `H${ob.x}` : ''}`, F.quelle, qon);
+        }
+        else o += rohr(`M${ib.x} ${ib.y}V399A9 9 0 0 0 400 381V${ia.y}${ia.x !== 400 ? `H${ia.x}` : ''}`, F.quelle, qon) + rohr(`M${ob.x} ${ob.y}V381A9 9 0 0 1 430 399V${oa.y}${oa.x !== 430 ? `H${oa.x}` : ''}`, F.quelle, qon);
       }
     }
     const TWc = c.trinkwasser;
     if (TW) {
-      if (ZK) o += rohr(`M${tw} -6H${tk}`, F.tw_warm, zirk_on);
-      o += rohr(`M${tk} -26V${tyb}`, F.tw_kalt) + rohr(`M${tw} ${tyb}V-26`, F.tw_warm);
-      if (zapf) o += `<path d="M${tk} -26V${tyb}M${tw} ${tyb}V-26" class="w3"/>`;
-      else if (zirk_on) o += `<path d="M${tk} -6V${tyb}M${tw} ${tyb}V-6" class="w3"/>`;
-      o += TWc && TWc.zaehler ? `<g${more(TWc.zaehler)}>${zaehlerSym(tk, -18)}</g>` : `<path d="M${tk - 4}-23l4 4 4-4" class="wa"/>`;
-      o += `<path d="M${tw - 4}-19l4-4 4 4" class="wa"/>`;
+      const domesticOffset = model.components['domestic-boundary'].origin.y - model.components['domestic-boundary'].baseOrigin.y;
       if (ZK) {
-        o += `<g data-act="zirk" class="wx"><title>${L.zirkTitle}</title><circle cx="${tm}" cy="-6" r="14" fill="transparent"/>${pumpe(tm, -6, 'l', zirk_on)}</g>`;
-        o += `<text x="${tm}" y="-20" font-size="7" class="wc ws" font-weight="600">${L.zirk}</text>`;
+        const hot = model.connections['circulation-hot'], cold = model.connections['circulation-cold'];
+        const middle = model.connections['circulation-pump-through'];
+        const a = point(hot.from), pin = point(hot.to), m1 = point(middle.from), m2 = point(middle.to), pout = point(cold.from), b = point(cold.to);
+        const through = pin.y !== a.y || pout.y !== a.y || pin.x <= pout.x || m1.x !== pin.x || m1.y !== pin.y || m2.x !== pout.x || m2.y !== pout.y ? `H${pin.x}V${pin.y}H${m1.x}V${m1.y}H${m2.x}V${m2.y}H${pout.x}V${pout.y}V${b.y}` : '';
+        o += rohr(`M${a.x} ${a.y}${through}H${b.x}${!through && b.y !== a.y ? `V${b.y}` : ''}`, F.tw_warm, zirk_on);
       }
-      o += `<text x="${tk - 8}" y="-14" font-size="7.5" class="we" font-weight="600" fill="${F.tw_kalt}">${esc(c.text_tw_kalt ?? L.kalt)}</text><text x="${tw + 8}" y="-14" font-size="7.5" font-weight="600" fill="${F.tw_warm}">${esc(c.text_tw_warm ?? L.warm)}</text>`;
+      const domesticPath = (a, b, edge) => {
+        const points = edge.via.map((id) => model.junctions[id]);
+        if (points.every((j) => j.x === a.x && j.y >= Math.min(a.y, b.y) && j.y <= Math.max(a.y, b.y))) return `M${a.x} ${a.y}V${b.y}${b.x !== a.x ? `H${b.x}` : ''}`;
+        return `M${a.x} ${a.y}` + points.map((j) => `V${j.y}H${j.x}`).join('') + `V${b.y}H${b.x}`;
+      };
+      const coldPath = domesticPath(dc, de, model.connections['domestic-cold']), hotPath = domesticPath(dh, dw, model.connections['domestic-hot']);
+      o += rohr(coldPath, F.tw_kalt) + rohr(hotPath, F.tw_warm);
+      if (zapf) o += `<path d="${coldPath}${hotPath}" class="w3"/>`;
+      else if (zirk_on) {
+        const cj = point(model.connections['circulation-cold'].to), hj = point(model.connections['circulation-hot'].from);
+        o += `<path d="M${cj.x} ${cj.y}V${de.y}${de.x !== cj.x ? `H${de.x}` : ''}M${dh.x} ${dh.y}V${hj.y}${hj.x !== dh.x ? `H${hj.x}` : ''}" class="w3"/>`;
+      }
+      o += TWc && TWc.zaehler ? `<g${more(TWc.zaehler)}>${zaehlerSym(model.components['domestic-meter'].origin.x + 6, model.components['domestic-meter'].origin.y + 6)}</g>` : `<path d="M${tk - 4}${-23 + domesticOffset}l4 4 4-4" class="wa"/>`;
+      o += `<path d="M${tw - 4}${-19 + domesticOffset}l4-4 4 4" class="wa"/>`;
+      if (ZK) {
+        const b = model.components['circulation-pump'], px = b.origin.x + 10, py = b.origin.y + 10;
+        o += `<g data-act="zirk" class="wx"><title>${L.zirkTitle}</title><circle cx="${px}" cy="${py}" r="14" fill="transparent"/>${pumpe(px, py, 'l', zirk_on)}</g>`;
+        o += `<text x="${px}" y="${py - 14}" font-size="7" class="wc ws" font-weight="600">${L.zirk}</text>`;
+      }
+      o += `<text x="${tk - 8}" y="${-14 + domesticOffset}" font-size="7.5" class="we" font-weight="600" fill="${F.tw_kalt}">${esc(c.text_tw_kalt ?? L.kalt)}</text><text x="${tw + 8}" y="${-14 + domesticOffset}" font-size="7.5" font-weight="600" fill="${F.tw_warm}">${esc(c.text_tw_warm ?? L.warm)}</text>`;
       if (TT && FMx && (FMx.temp || FMx.durchfluss))
-        o += `<text x="${tw + 8}" y="-3" font-size="8" class="wt"${more(FMx.temp || FMx.durchfluss)} fill="${zapf ? F.aktiv : '#9aa0a6'}">${[FMx.temp ? fmt(S(FMx.temp)) : '', FMx.durchfluss ? r1(NUM(FMx.durchfluss)) + ' l/min' : ''].filter(Boolean).join(' · ')}</text>`;
+        o += `<text x="${tw + 8}" y="${-3 + domesticOffset}" font-size="8" class="wt"${more(FMx.temp || FMx.durchfluss)} fill="${zapf ? F.aktiv : '#9aa0a6'}">${[FMx.temp ? fmt(S(FMx.temp)) : '', FMx.durchfluss ? r1(NUM(FMx.durchfluss)) + ' l/min' : ''].filter(Boolean).join(' · ')}</text>`;
       if (TWc) {
         const z1 = [TWc.temp ? fmt(S(TWc.temp)) : '', TWc.zaehler ? `${r1(NUM(TWc.zaehler))} ${U(TWc.zaehler, 'm³')}` : ''].filter(Boolean).join(' · ');
-        if (z1) o += `<text x="${tk - 8}" y="-3" font-size="8" class="we wv wx" data-more="${esc(TWc.temp || TWc.zaehler)}">${esc(z1)}</text>`;
+        if (z1) o += `<text x="${tk - 8}" y="${-3 + domesticOffset}" font-size="8" class="we wv wx" data-more="${esc(TWc.temp || TWc.zaehler)}">${esc(z1)}</text>`;
         if (TWc.enthaertung) {
           const ev = S(TWc.enthaertung);
-          o += `<text x="${tk - 8}" y="8" font-size="8" class="we ws wx" data-more="${esc(TWc.enthaertung)}">${L.enth} ${isNum(ev) ? r1(Number(ev)) + ' ' + esc(U(TWc.enthaertung, '%')) : ON(TWc.enthaertung) ? L.an : L.aus}</text>`;
+          o += `<text x="${tk - 8}" y="${8 + domesticOffset}" font-size="8" class="we ws wx" data-more="${esc(TWc.enthaertung)}">${L.enth} ${isNum(ev) ? r1(Number(ev)) + ' ' + esc(U(TWc.enthaertung, '%')) : ON(TWc.enthaertung) ? L.an : L.aus}</text>`;
         }
       }
     }
-    if (K) o += rohr(`M70 ${y_bu}H-58`, F.kalt, k_pumpe) + rohr(`M-58 ${y_ru}H70`, F.warm, k_pumpe);
+    if (K) {
+      const returnFirst = model.connections[K.pumpe ? 'additional-return-tank' : 'additional-return'];
+      const returnLast = model.connections[K.pumpe ? 'additional-return-device' : 'additional-return'];
+      const supply = model.connections['additional-supply'];
+      const a = point(returnFirst.from), d = point(returnLast.to), e = point(supply.from), b = point(supply.to);
+      const middle = K.pumpe ? model.connections['additional-pump-through'] : null;
+      const pin = K.pumpe ? point(returnFirst.to) : null, m1 = middle ? point(middle.from) : null, m2 = middle ? point(middle.to) : null, pout = K.pumpe ? point(returnLast.from) : null;
+      const through = pin && (pin.y !== a.y || pout.y !== a.y || pin.x <= pout.x || m1.x !== pin.x || m1.y !== pin.y || m2.x !== pout.x || m2.y !== pout.y) ? `H${pin.x}V${pin.y}H${m1.x}V${m1.y}H${m2.x}V${m2.y}H${pout.x}V${pout.y}V${d.y}` : '';
+      const meter = supply.via.length ? model.junctions[supply.via[0]] : null;
+      const detour = meter && (meter.y !== e.y || meter.x < Math.min(e.x, b.x) || meter.x > Math.max(e.x, b.x)) ? `H${meter.x}V${meter.y}` : '';
+      o += rohr(`M${a.x} ${a.y}${through}H${d.x}${!through && d.y !== a.y ? `V${d.y}` : ''}`, F.kalt, k_pumpe) + rohr(`M${e.x} ${e.y}${detour}H${b.x}${(detour ? meter.y : e.y) !== b.y ? `V${b.y}` : ''}`, F.warm, k_pumpe);
+    }
     if (SO) {
-      o += rohr(`M${x0 + 52} 36V387Q${x0 + 52} 395 ${x0 + 60} 395H102Q110 395 110 387V374`, F.warm, so_on);
-      o += rohr(`M122 374V397Q122 405 114 405H${x0 + 16}Q${x0 + 8} 405 ${x0 + 8} 397V36`, F.kalt, so_on);
+      const supply = model.connections['solar-supply'], a = point(supply.to), cs = point(supply.from);
+      const first = model.connections[SO.pumpe ? 'solar-return-tank' : 'solar-return'];
+      const last = model.connections[SO.pumpe ? 'solar-return-collector' : 'solar-return'];
+      const b = point(first.from), cr = point(last.to);
+      o += rohr(`M${cs.x} ${cs.y}V387Q${cs.x} 395 ${cs.x + 8} 395H${a.x - 8}Q${a.x} 395 ${a.x} 387V${a.y}`, F.warm, so_on);
+      const middle = SO.pumpe ? model.connections['solar-pump-through'] : null;
+      const pin = SO.pumpe ? point(first.to) : null, m1 = middle ? point(middle.from) : null, m2 = middle ? point(middle.to) : null, pout = SO.pumpe ? point(last.from) : null;
+      const through = pin && (pin.x !== cr.x || pout.x !== cr.x || pin.y <= pout.y || m1.x !== pin.x || m1.y !== pin.y || m2.x !== pout.x || m2.y !== pout.y) ? `V${pin.y}H${pin.x}V${m1.y}H${m1.x}V${m2.y}H${m2.x}V${pout.y}H${pout.x}H${cr.x}` : '';
+      o += rohr(`M${b.x} ${b.y}V397Q${b.x} 405 ${b.x - 8} 405H${cr.x + 8}Q${cr.x} 405 ${cr.x} 397${through}V${cr.y}`, F.kalt, so_on);
     }
 
     /* ---------- Heizkreisverteiler ---------- */
-    const y_vv = 420 + dyw, y_rv = 448 + dyw, y_hm = 482 + dyw, y_he = 548 + dyw;
-    const bxV = W8 ? 356 : 300, bxR = W8 ? 372 : 317, srcV = W8 ? 356 : 295, srcR = W8 ? 372 : 312;
+    const y_vv = HK ? point(model.connections['manifold-supply'].from).y : 420 + dyw, y_rv = HK ? point(model.connections['manifold-return'].from).y : 448 + dyw;
+    const y_hm = 482 + dyw, y_he = 548 + dyw;
     if (HK) {
-      if (WP && akt.length && !wp_on) o += `<path d="M206 ${y_ru}H254A8 8 0 0 1 270 ${y_ru}H295M240 ${y_bu}H206" class="w3" style="${td}"/>`;
+      if (WP && akt.length && !wp_on) {
+        const supply = model.connections['wp-lower-supply'], ret = model.connections['wp-lower-return'];
+        const a = point(supply.to), b = point(ret.from), sj = model.junctions[supply.via[0]], rj = model.junctions[ret.via[0]];
+        o += `<path d="M${a.x} ${a.y}H254A8 8 0 0 1 270 ${sj.y}H${sj.x}M${rj.x} ${rj.y}H${b.x}${b.y !== rj.y ? `V${b.y}` : ''}" class="w3" style="${td}"/>`;
+      }
+      const hs = model.connections['hk-supply'], hr = model.connections['hk-return'];
+      const source = point(hs.from), sink = point(hs.to);
+      const back = point(hr.from), backEnd = point(hr.to);
       const tf = 1 / Math.max(hk_fl, 0.04), fl1 = hk_fl > 0.04;
       const jmp = (x) => (FM ? `399A9 9 0 0 0 ${x} 381` : '381');
-      const rl1 = W8 ? `M322 462H320Q312 462 312 454V${jmp(312)}` : `M312 ${y_rv}V${jmp(312)}`;
-      o += rohr(WP ? `${rl1}V368Q312 360 304 360H248Q240 360 240 352V${y_bu}` : `${rl1}V${y_bu + 8}Q312 ${y_bu} 304 ${y_bu}H206`, CK, fl1, tf);
-      o += rohr((WP ? `M295 ${y_ru}V${y_m - 9}A9 9 0 0 0 295 ${y_m + 9}V351A9 9 0 0 0 295 369`
-        : `M206 ${y_ru}H287Q295 ${y_ru} 295 ${y_ru + 8}V${y_bu - 9}A9 9 0 0 0 295 ${y_bu + 9}`) +
-        `V${FM ? '381A9 9 0 0 0 295 399' : '399'}` + (W8 ? 'V402Q295 410 303 410H304A8 8 0 0 1 320 410H322' : `V${y_vv}`), CW, fl1, tf);
+      const rl1 = W8 ? `M${back.x} ${back.y}H320Q312 462 312 454V${jmp(312)}` : `M${back.x} ${back.y}V${jmp(312)}`;
+      o += rohr(WP ? `${rl1}V368Q312 360 304 360H${backEnd.x + 8}Q${backEnd.x} 360 ${backEnd.x} ${backEnd.y + 12}V${backEnd.y}` : `${rl1}V${y_bu + 8}Q312 ${y_bu} 304 ${y_bu}H${backEnd.x}${backEnd.y !== y_bu ? `V${backEnd.y}` : ''}`, CK, fl1, tf);
+      o += rohr((WP ? `M${source.x} ${source.y}V${y_m - 9}A9 9 0 0 0 295 ${y_m + 9}V351A9 9 0 0 0 295 369`
+        : `M${source.x} ${source.y}H287Q295 ${y_ru} 295 ${y_ru + 8}V${y_bu - 9}A9 9 0 0 0 295 ${y_bu + 9}`) +
+        `V${FM ? '381A9 9 0 0 0 295 399' : '399'}` + (W8 ? `V402Q295 410 303 410H304A8 8 0 0 1 320 410H${sink.x}${sink.y !== 410 ? `V${sink.y}` : ''}` : `V${sink.y}${sink.x !== 295 ? `H${sink.x}` : ''}`), CW, fl1, tf);
       if (W8) {
-        o += rohr(`M342 410H348Q356 410 356 418V${y_vv}`, CW, fl1, tf);
-        o += rohr(`M372 ${y_rv}V470Q372 462 364 462A8 8 0 0 0 348 462H342`, CK, fl1, tf);
+        const ss = model.connections['separator-supply'], sr = model.connections['separator-return'];
+        const a = point(ss.from), b = point(ss.to), d = point(sr.from), e = point(sr.to);
+        o += rohr(`M${a.x} ${a.y}H348Q356 410 356 418V${b.y}${b.x !== 356 ? `H${b.x}` : ''}`, CW, fl1, tf);
+        o += rohr(`M${d.x} ${d.y}V470Q372 462 364 462A8 8 0 0 0 348 462H${e.x}${e.y !== 462 ? `V${e.y}` : ''}`, CK, fl1, tf);
       }
-      for (const x of hks) {
-        const rx = x.x + 16;
+      for (const [i, x] of hks.entries()) {
+        const edge = model.connections[`heating-return-${i}`], a = point(edge.from), b = point(edge.to);
+        const rx = a.x;
         if (x.MIX) {
-          o += rohr(`M${rx} ${y_he}V${y_hm}`, CK, x.on);
-          o += rohr(`M${rx} ${y_hm}V${y_rv}`, CK, x.on && x.a > 0.04, 1 / Math.max(x.a, 0.04));
-          o += rohr(`M${rx} ${y_hm}H${x.x - 1}`, CK, x.on && x.a < 0.96, 1 / Math.max(1 - x.a, 0.04));
-        } else o += rohr(`M${rx} ${y_he}V${y_rv}`, CK, x.on);
+          const j = model.junctions[edge.via[0]], bypassEdge = model.connections[`heating-bypass-${i}`];
+          const bypassStart = point(bypassEdge.from), bypass = point(bypassEdge.to);
+          o += rohr(`M${rx} ${a.y}V${j.y}${j.x !== rx ? `H${j.x}` : ''}`, CK, x.on);
+          o += rohr(`M${j.x} ${j.y}V${b.y}${b.x !== j.x ? `H${b.x}` : ''}`, CK, x.on && x.a > 0.04, 1 / Math.max(x.a, 0.04));
+          o += rohr(`M${bypassStart.x} ${bypassStart.y}H${bypass.x}${bypass.y !== bypassStart.y ? `V${bypass.y}` : ''}`, CK, x.on && x.a < 0.96, 1 / Math.max(1 - x.a, 0.04));
+        } else o += rohr(`M${rx} ${a.y}V${b.y}${b.x !== rx ? `H${b.x}` : ''}`, CK, x.on);
       }
-      o += verteiler(bx1, bxR, y_rv, CK);
-      if (akt.length) o += `<path d="M${Math.min(...akt) + 16} ${y_rv}H${srcR}" class="w3" style="${td}"/>`;
-      for (const x of hks) {
-        const sx = x.x - 16, jump = `M${sx} ${y_vv}V${y_rv - 11}A11 11 0 0 1 ${sx} ${y_rv + 11}`;
+      const railAnimation = (from, to, edge, y) => {
+        const nodes = [point(edge.from), ...edge.via.map((id) => model.junctions[id]), point(edge.to)];
+        const vertices = [nodes[0]];
+        for (const node of nodes.slice(1)) {
+          const previous = vertices[vertices.length - 1];
+          if (previous.x !== node.x) vertices.push({ x: node.x, y: previous.y });
+          if (vertices[vertices.length - 1].y !== node.y) vertices.push(node);
+        }
+        const index = (p) => vertices.findIndex((v) => v.x === p.x && v.y === p.y);
+        const first = index(from), last = index(to);
+        if (first < 0 || last < 0) return `M${from.x} ${from.y}H${to.x}${to.y !== from.y ? `V${to.y}` : ''}`;
+        const section = first <= last ? vertices.slice(first, last + 1) : vertices.slice(last, first + 1).reverse();
+        if (section.every((v) => v.y === y)) return `M${from.x} ${from.y}H${to.x}`;
+        return `M${from.x} ${from.y}` + section.slice(1).map((v, i) => v.x === section[i].x ? `V${v.y}` : `H${v.x}`).join('');
+      };
+      o += verteiler(model.connections['manifold-return'], CK);
+      if (akt.length) {
+        const i = akt[aktReturn.indexOf(Math.min(...aktReturn))], from = model.junctions[`manifold-return-${i}`], to = model.junctions['manifold-primary-return'];
+        o += `<path d="${railAnimation(from, to, model.connections['manifold-return'], y_rv)}" class="w3" style="${td}"/>`;
+      }
+      for (const [i, x] of hks.entries()) {
+        const edge = model.connections[`heating-supply-${i}`], a = point(edge.from);
+        const b = point(!x.MIX && x.pumpe ? model.connections[`heating-pump-out-${i}`].to : edge.to);
+        const sx = a.x, jump = `M${sx} ${a.y}V${y_rv - 11}A11 11 0 0 1 ${sx} ${y_rv + 11}`;
+        const throughPump = (start, target, inlet) => {
+          if (!x.pumpe) return `V${target.y}${target.x !== start.x ? `H${target.x}` : ''}`;
+          const outlet = point(model.connections[`heating-pump-out-${i}`].from), pump = model.components[`heating-pump-${i}`];
+          const middle = model.connections[`heating-pump-through-${i}`], m1 = point(middle.from), m2 = point(middle.to);
+          const standard = inlet.x === start.x && outlet.x === start.x && inlet.y === pump.baseOrigin.y && outlet.y === pump.baseOrigin.y + 20 && m1.x === inlet.x && m1.y === inlet.y && m2.x === outlet.x && m2.y === outlet.y;
+          return standard ? `V${target.y}${target.x !== start.x ? `H${target.x}` : ''}` : `V${inlet.y}H${inlet.x}V${m1.y}H${m1.x}V${m2.y}H${m2.x}V${outlet.y}H${outlet.x}V${target.y}${target.x !== outlet.x ? `H${target.x}` : ''}`;
+        };
         if (x.MIX) {
-          o += rohr(`${jump}V${y_hm - 14}`, CW, x.on && x.a > 0.04, 1 / Math.max(x.a, 0.04));
-          o += rohr(`M${sx} ${y_hm + 14}V${y_he}`, x.c, x.on);
-        } else o += rohr(`${jump}V${y_he}`, CW, x.on);
+          const mixed = model.connections[`heating-mixed-${i}`], d = point(mixed.from), e = point(x.pumpe ? model.connections[`heating-pump-out-${i}`].to : mixed.to);
+          o += rohr(`${jump}V${b.y}${b.x !== sx ? `H${b.x}` : ''}`, CW, x.on && x.a > 0.04, 1 / Math.max(x.a, 0.04));
+          o += rohr(`M${d.x} ${d.y}${throughPump(d, e, point(mixed.to))}`, x.c, x.on);
+        } else o += rohr(`${jump}${throughPump(a, b, point(edge.to))}`, CW, x.on);
       }
-      o += verteiler(bx1, bxV, y_vv, CW);
-      if (akt.length) o += `<path d="M${srcV} ${y_vv}H${Math.min(...akt) - 16}" class="w3" style="${td}"/>`;
+      o += verteiler(model.connections['manifold-supply'], CW);
+      if (akt.length) {
+        const i = akt[aktSupply.indexOf(Math.min(...aktSupply))], from = model.junctions['manifold-primary-supply'], to = model.junctions[`manifold-supply-${i}`];
+        o += `<path d="${railAnimation(from, to, model.connections['manifold-supply'], y_vv)}" class="w3" style="${td}"/>`;
+      }
       o += `<text x="${bx1 - 8}" y="${y_vv + 3}" font-size="7.5" class="we ws" font-weight="600">VL</text><text x="${bx1 - 8}" y="${y_rv + 3}" font-size="7.5" class="we ws" font-weight="600">RL</text>`;
       if (W8) {
         const WX = c.weiche;
-        o += `<g${more(WX.temp)}><rect x="322" y="400" width="20" height="72" rx="10" fill="url(#wwW8)" stroke="#fff" stroke-opacity=".5" stroke-width="1.2"/>`;
+        const b = model.components.separator, { x, y } = b.origin, { width, height } = b.bounds;
+        o += `<g${more(WX.temp)}><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="10" fill="url(#wwW8)" stroke="#fff" stroke-opacity=".5" stroke-width="1.2"/>`;
+        o += openComponent('separator');
         o += `<rect x="326" y="406" width="4" height="60" rx="2" fill="#fff" opacity=".25"/>`;
         if (WX.temp) o += `<text x="332" y="436" font-size="7.5" class="wc wt wo" fill="#fff" transform="rotate(-90 332 436)">${fmt(S(WX.temp))}</text>`;
+        o += closeComponent('separator');
         o += '</g>';
       }
-      for (const x of hks) {
-        const sx = x.x - 16;
+      for (const [i, x] of hks.entries()) {
+        const branch = model.components[`heating-circuit-${i}`], drawX = branch.baseOrigin.x + 22, sx = drawX - 16;
         if (x.MIX) {
-          o += mischer(sx, y_hm, CW, isNum(x.m) ? x.a : null) + tee(x.x + 16, y_hm);
-          if (isNum(x.m)) o += `<text x="${sx - 26}" y="${y_hm + 19}" font-size="7.5" class="wc wt wx" data-more="${esc(x.mischer)}" style="fill:${x.c}"><title>${L.mischerTitle(esc(x.m))}</title>${Math.round(x.a * 100)}%</text>`;
+          const m = model.components[`heating-mixer-${i}`], j = model.junctions[`heating-return-tee-${i}`];
+          o += mischer(m.origin.x + 34, m.origin.y + 14, CW, isNum(x.m) ? x.a : null) + tee(j.x, j.y);
+          if (isNum(x.m)) o += openComponent(`heating-mixer-${i}`) + `<text x="${sx - 26}" y="${y_hm + 19}" font-size="7.5" class="wc wt wx" data-more="${esc(x.mischer)}" style="fill:${x.c}"><title>${L.mischerTitle(esc(x.m))}</title>${Math.round(x.a * 100)}%</text>` + closeComponent(`heating-mixer-${i}`);
         }
-        if (x.pumpe) o += `<g${more(x.pumpe)}>${pumpe(sx, 514 + dyw, 'd', x.on)}</g>`;
-        o += `<path d="M${sx - 4} ${y_he - 9}l4 4 4-4M${x.x + 12} ${y_he - 5}l4-4 4 4" class="wa"/>`;
-        o += `<text x="${x.x}" y="${y_he + 16}" font-size="10" class="wc wt${x.on ? '' : ' wv'}"${x.on ? ` fill="${F.aktiv}"` : ''}>${esc(x.name)}</text>`;
+        if (x.pumpe) {
+          const b = model.components[`heating-pump-${i}`];
+          o += `<g${more(x.pumpe)}>${pumpe(b.origin.x + 10, b.origin.y + 10, 'd', x.on)}</g>`;
+        }
+        o += openComponent(`heating-circuit-${i}`);
+        o += `<path d="M${sx - 4} ${y_he - 9}l4 4 4-4M${drawX + 12} ${y_he - 5}l4-4 4 4" class="wa"/>`;
+        o += `<text x="${drawX}" y="${y_he + 16}" font-size="10" class="wc wt${x.on ? '' : ' wv'}"${x.on ? ` fill="${F.aktiv}"` : ''}>${esc(x.name)}</text>`;
         let y = y_he + 28;
-        for (const z of x.zeilen) { o += `<text x="${x.x}" y="${y}" font-size="8.5" class="wc ws wx" data-more="${esc(z.e)}">${esc(z.t)}</text>`; y += 12; }
+        for (const z of x.zeilen) { o += `<text x="${drawX}" y="${y}" font-size="8.5" class="wc ws wx" data-more="${esc(z.e)}">${esc(z.t)}</text>`; y += 12; }
         const hc = x.on ? x.c : '#8a9099';
         if (x.typ === 'fussboden' || x.typ === 'fussbodenheizung' || x.typ === 'floor')
-          o += `<path d="M${x.x - 22} ${y}h40a3 3 0 0 1 0 6h-40a3 3 0 0 0 0 6h40a3 3 0 0 1 0 6h-40" fill="none" stroke="${hc}" stroke-width="2" stroke-linecap="round"/>`;
+          o += `<path d="M${drawX - 22} ${y}h40a3 3 0 0 1 0 6h-40a3 3 0 0 0 0 6h40a3 3 0 0 1 0 6h-40" fill="none" stroke="${hc}" stroke-width="2" stroke-linecap="round"/>`;
         else if (x.typ === 'heizkoerper' || x.typ === 'radiator')
-          o += `<rect x="${x.x - 20}" y="${y - 2}" width="40" height="20" rx="3" fill="#2b2f35" stroke="${hc}" stroke-width="1.5"/>` +
-            [0, 1, 2, 3, 4].map((k) => `<path d="M${x.x - 14 + k * 7} ${y + 2}v12" stroke="${hc}" stroke-width="2" stroke-linecap="round"/>`).join('');
+          o += `<rect x="${drawX - 20}" y="${y - 2}" width="40" height="20" rx="3" fill="#2b2f35" stroke="${hc}" stroke-width="1.5"/>` +
+            [0, 1, 2, 3, 4].map((k) => `<path d="M${drawX - 14 + k * 7} ${y + 2}v12" stroke="${hc}" stroke-width="2" stroke-linecap="round"/>`).join('');
+        o += closeComponent(`heating-circuit-${i}`);
       }
     }
 
     /* Umschaltventil WP + T-Stücke */
-    if (WP) o += W.ventil ? `<g${more(W.ventil)}>${mischer(262, y_m, CK, vb, CW, CK)}</g>` : mischer(262, y_m, CK);
-    if (HK && WP) o += tee(295, y_ru) + tee(240, y_bu);
-    if (TW && ZK) o += tee(tk, -6) + tee(tw, -6);
+    if (WP) {
+      const v = model.components.valve, vx = v.origin.x + 34, vy = v.origin.y + v.bounds.height / 2;
+      o += W.ventil ? `<g${more(W.ventil)}>${mischer(vx, vy, CK, vb, CW, CK)}</g>` : mischer(vx, vy, CK);
+    }
+    if (HK && WP) {
+      const a = model.junctions[model.connections['wp-lower-supply'].via[0]], b = model.junctions[model.connections['wp-lower-return'].via[0]];
+      o += tee(a.x, a.y) + tee(b.x, b.y);
+    }
+    if (TW && ZK) {
+      const a = point(model.connections['circulation-cold'].to), b = point(model.connections['circulation-hot'].from);
+      o += tee(a.x, a.y) + tee(b.x, b.y);
+    }
 
     /* Wärmemengenzähler */
-    if (WP && W.wmz) o += `<g${more(W.wmz)}>${zaehlerSym(300, 100)}<text x="292" y="103" font-size="8" class="we wt wv">${r1(NUM(W.wmz))} ${esc(U(W.wmz, 'kWh'))}</text></g>`;
-    if (K && K.wmz) o += `<g${more(K.wmz)}>${zaehlerSym(-30, y_ru)}<text x="-30" y="${y_ru - 11}" font-size="8" class="wc wt wv">${r1(NUM(K.wmz))} ${esc(U(K.wmz, 'kWh'))}</text></g>`;
+    if (WP && W.wmz) o += openComponent('wp-meter') + `<g${more(W.wmz)}>${zaehlerSym(300, 100)}<text x="292" y="103" font-size="8" class="we wt wv">${r1(NUM(W.wmz))} ${esc(U(W.wmz, 'kWh'))}</text></g>` + closeComponent('wp-meter');
+    if (K && K.wmz) o += openComponent('additional-meter') + `<g${more(K.wmz)}>${zaehlerSym(-30, y_ru)}<text x="-30" y="${y_ru - 11}" font-size="8" class="wc wt wv">${r1(NUM(K.wmz))} ${esc(U(K.wmz, 'kWh'))}</text></g>` + closeComponent('additional-meter');
 
     /* Legende */
     if (fl.length) {
@@ -565,6 +986,7 @@ class WarmwasserSchemaCard extends HTMLElement {
 
     /* ---------- Solar ---------- */
     if (SO) {
+      o += openComponent('solar-collector');
       o += `<g${more(SO.kollektor || SO.leistung || SO.pumpe)}>`;
       o += `<path d="M${x0} 36L${x0 + 14} -22H${x0 + 70}L${x0 + 56} 36Z" fill="url(#wwSol)" stroke="#9aa0a6" stroke-width="1.2" stroke-linejoin="round"/>`;
       o += [1, 2, 3].map((k) => `<path d="M${x0 + k * 14} 36L${x0 + 14 + k * 14} -22" stroke="#9aa0a6" stroke-opacity=".6" stroke-width=".8"/>`).join('');
@@ -574,18 +996,29 @@ class WarmwasserSchemaCard extends HTMLElement {
         [0, 45, 90, 135, 180, 225, 270, 315].map((a) => `<path d="M${x0 + 80} -24v-3" stroke="${sc}" stroke-width="1.5" stroke-linecap="round" transform="rotate(${a} ${x0 + 80} -16)"/>`).join('');
       if (SO.kollektor) o += `<text x="${x0 + 30}" y="54" font-size="11" class="wc wt${so_on ? '' : ' wv'}"${so_on ? ` fill="${F.solar}"` : ''}>${fmt(S(SO.kollektor))}</text>`;
       o += `<text x="${x0 + 30}" y="${SO.kollektor ? 66 : 54}" font-size="7.5" class="wc ws" font-weight="600" letter-spacing="1">${esc(String(SO.name || L.solar).toUpperCase())}</text></g>`;
-      if (SO.pumpe) o += `<g${more(SO.pumpe)}>${pumpe(x0 + 8, 200, 'u', so_on)}</g>`;
+      o += closeComponent('solar-collector');
+      if (SO.pumpe) {
+        const b = model.components['solar-pump'];
+        o += `<g${more(SO.pumpe)}>${pumpe(b.origin.x + 10, b.origin.y + 10, 'u', so_on)}</g>`;
+      }
+      o += openComponent('solar-collector');
       if (SO.leistung) o += `<text x="${x0 + 30}" y="250" font-size="8.5" class="wc wt wx${so_on ? '' : ' ws'}" data-more="${esc(SO.leistung)}"${so_on ? ` fill="${F.solar}"` : ''}>${watt(NUM(SO.leistung))}</text>`;
       if (SO.wmz) o += `<text x="${x0 + 30}" y="264" font-size="8" class="wc ws wx" data-more="${esc(SO.wmz)}">${r1(NUM(SO.wmz))} ${esc(U(SO.wmz, 'kWh'))}</text>`;
+      o += closeComponent('solar-collector');
     }
 
     /* ---------- Zusatzwärme ---------- */
     if (K) {
       const txt = kHell ? '#1f2329' : '#fff';
-      if (kTyp !== 'fernwaerme') o += `<rect x="-114" y="-30" width="18" height="180" fill="url(#wwFlue)"/><rect x="-118" y="2" width="26" height="8" rx="2" fill="#2b2f35"/><rect x="-117" y="128" width="24" height="5" rx="1.5" fill="#2b2f35"/>`;
-      else o += rohr('M-120 -26V150', F.warm, k_feuer) + rohr('M-90 150V-26', F.kalt, k_feuer) + `<text x="-105" y="-18" font-size="7.5" class="wc ws" font-weight="600">${esc(L.typ.fernwaerme.toUpperCase())}</text>`;
-      if (K.abgas && kTyp !== 'fernwaerme') o += `<text x="-90" y="60" font-size="8" class="wv wx" data-more="${esc(K.abgas)}">${L.abgas} ${fmt(S(K.abgas))}</text>`;
+      if (kTyp !== 'fernwaerme') o += openComponent('additional-heat') + `<rect x="-114" y="-30" width="18" height="180" fill="url(#wwFlue)"/><rect x="-118" y="2" width="26" height="8" rx="2" fill="#2b2f35"/><rect x="-117" y="128" width="24" height="5" rx="1.5" fill="#2b2f35"/>` + closeComponent('additional-heat');
+      else {
+        const a = point(model.connections['district-supply'].from), b = point(model.connections['district-supply'].to);
+        const d = point(model.connections['district-return'].from), e = point(model.connections['district-return'].to);
+        o += rohr(`M${a.x} ${a.y}V${b.y}${b.x !== a.x ? `H${b.x}` : ''}`, F.warm, k_feuer) + rohr(`M${d.x} ${d.y}V${e.y}${e.x !== d.x ? `H${e.x}` : ''}`, F.kalt, k_feuer) + `<text x="-105" y="-18" font-size="7.5" class="wc ws" font-weight="600">${esc(L.typ.fernwaerme.toUpperCase())}</text>`;
+      }
+      if (K.abgas && kTyp !== 'fernwaerme') o += openComponent('additional-heat') + `<text x="-90" y="60" font-size="8" class="wv wx" data-more="${esc(K.abgas)}">${L.abgas} ${fmt(S(K.abgas))}</text>` + closeComponent('additional-heat');
       o += `<rect x="-146" y="362" width="12" height="22" rx="2" fill="#3a3f46"/><rect x="-76" y="362" width="12" height="22" rx="2" fill="#3a3f46"/>`;
+      o += openComponent('additional-heat');
       o += `<rect x="-150" y="150" width="90" height="214" rx="10" fill="url(#wwSteel)" filter="url(#wwShadow)"/><rect x="-150" y="150" width="90" height="214" rx="10" fill="url(#wwBox)"/>`;
       o += `<rect x="-154" y="146" width="98" height="10" rx="3" fill="#2b2f35" stroke="#555b63" stroke-width=".8"/><text x="-142" y="170" font-size="8" class="wt" letter-spacing="1.5" fill="${txt}" opacity=".85">${esc(String(kName).toUpperCase())}</text>`;
       if (K.temp) {
@@ -630,65 +1063,84 @@ class WarmwasserSchemaCard extends HTMLElement {
           : k_feuer ? (kTyp === 'bhkw' ? L.laeuft : L.aktiv) : L.aus;
         o += `<text x="-105" y="349" font-size="9" class="wc" font-weight="600" fill="${k_feuer ? (kHell ? '#c2410c' : F.aktiv) : k_glut ? '#ff8c2a' : kHell ? '#4b5058' : '#9aa0a6'}">${st}</text>`;
       }
-      o += stub(-64, y_ru - 6, 10, 12) + stub(-64, y_bu - 6, 10, 12);
-      if (K.pumpe) o += `<g${more(K.pumpe)}>${pumpe(-24, y_bu, 'l', k_pumpe)}</g>`;
+      o += closeComponent('additional-heat');
+      o += portStub(model.connections['additional-supply'].from) + portStub(c.kamin.pumpe ? model.connections['additional-return-device'].to : model.connections['additional-return'].to);
+      if (K.pumpe) { const b = model.components['additional-pump']; o += `<g${more(K.pumpe)}>${pumpe(b.origin.x + 10, b.origin.y + 10, 'l', k_pumpe)}</g>`; }
       if (K.modus) {
+        o += openComponent('additional-heat');
         o += `<g data-act="modus" class="wx"><title>${L.modusTitle}</title><rect x="-52" y="${y_bu + 12}" width="56" height="19" fill="transparent"/>`;
         o += `<rect x="-48" y="${y_bu + 15}" width="48" height="13" rx="6.5" fill="${k_mod[1]}" fill-opacity=".18" stroke="${k_mod[1]}"/>`;
         o += `<text x="-27" y="${y_bu + 24.5}" font-size="7.5" class="wc wt" letter-spacing=".6" fill="${k_mod[1]}">${esc(k_mod[0])}</text>`;
         o += `<path d="M-9 ${y_bu + 19.5}l3 2-3 2" fill="none" stroke="${k_mod[1]}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></g>`;
+        o += closeComponent('additional-heat');
       }
     }
 
     /* ---------- Speicher ---------- */
-    o += `<rect x="93" y="362" width="11" height="22" rx="2" fill="#3a3f46"/><rect x="170" y="362" width="11" height="22" rx="2" fill="#3a3f46"/>`;
-    const cap = (a, b) =>
-      `<rect x="72" y="${a}" width="130" height="${b - a}" rx="65" ry="22" fill="url(#wwTemp)" filter="url(#wwShadow)"/><rect x="72" y="${a}" width="130" height="${b - a}" rx="65" ry="22" fill="url(#wwCyl)"/>` +
-      `<rect x="86" y="${a + 30}" width="7" height="${b - a - 60}" rx="3.5" fill="#fff" opacity=".14"/><path d="M72 ${a + 26}Q137 ${a + 46} 202 ${a + 26}" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="1.2"/><path d="M72 ${b - 26}Q137 ${b - 6} 202 ${b - 26}" fill="none" stroke="#000" stroke-opacity=".25" stroke-width="1.2"/>` +
-      `<rect x="72" y="${a}" width="130" height="${b - a}" rx="65" ry="22" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="1.5"/>`;
+    o += openComponent('tank-feet') + `<rect x="93" y="362" width="11" height="22" rx="2" fill="#3a3f46"/><rect x="170" y="362" width="11" height="22" rx="2" fill="#3a3f46"/>` + closeComponent('tank-feet');
+    const cap = (component) => {
+      const { x, y: a } = component.origin, { width, height } = component.bounds, b = a + height;
+      const gradient = component.origin.y === component.baseOrigin.y ? 'wwTemp' : `wwTemp-${component.id}`;
+      return `<rect x="${x}" y="${a}" width="${width}" height="${b - a}" rx="65" ry="22" fill="url(#${gradient})" filter="url(#wwShadow)"/><rect x="${x}" y="${a}" width="${width}" height="${b - a}" rx="65" ry="22" fill="url(#wwCyl)"/>` +
+      `<rect x="${x + 14}" y="${a + 30}" width="7" height="${b - a - 60}" rx="3.5" fill="#fff" opacity=".14"/><path d="M${x} ${a + 26}Q${x + 65} ${a + 46} ${x + 130} ${a + 26}" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="1.2"/><path d="M${x} ${b - 26}Q${x + 65} ${b - 6} ${x + 130} ${b - 26}" fill="none" stroke="#000" stroke-opacity=".25" stroke-width="1.2"/>` +
+      `<rect x="${x}" y="${a}" width="${width}" height="${b - a}" rx="65" ry="22" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="1.5"/>`;
+    };
     const etikett = (y, t) => `<text x="137" y="${y}" font-size="8.5" class="wc wt wo" letter-spacing="1" fill="#fff" opacity=".8">${esc(t)}</text>`;
     const liter = (v) => (v !== null && v !== undefined && v !== '' ? `${v} l` : '');
     if (SPLIT) {
-      o += cap(14, y_t - 8) + cap(y_t + 8, 374);
-      o += etikett(38, [L.ww, liter(c.volumen_ww)].filter(Boolean).join(' · '));
-      o += etikett(338, [L.puffer, liter(c.volumen)].filter(Boolean).join(' · '));
+      const a = model.components[tankId], b = model.components[bufferId];
+      o += cap(a) + cap(b);
+      o += openComponent(tankId) + etikett(38, [L.ww, liter(c.volumen_ww)].filter(Boolean).join(' · ')) + closeComponent(tankId);
+      o += openComponent(bufferId) + etikett(338, [L.puffer, liter(c.volumen)].filter(Boolean).join(' · ')) + closeComponent(bufferId);
     } else {
-      o += cap(14, 374);
-      if (liter(c.volumen)) o += etikett(338, liter(c.volumen));
+      const a = model.components[tankId];
+      o += cap(a);
+      if (liter(c.volumen)) o += openComponent(tankId) + etikett(338, liter(c.volumen)) + closeComponent(tankId);
     }
     if (TYP === 'kombi') {
-      const ib = y_t - 14;
+      o += openComponent('domestic-inner');
+      const ib = y_t - 14, inner = model.components['domestic-inner'], edge = model.connections['domestic-exchanger'];
+      const aa = point(edge.from), bb = point(edge.to), dx = inner.origin.x - inner.baseOrigin.x, dy = inner.origin.y - inner.baseOrigin.y;
+      const ax = aa.x - dx, ay = aa.y - dy, bx = bb.x - dx, by = bb.y - dy;
       o += `<rect x="102" y="30" width="70" height="${ib - 30}" rx="35" ry="14" fill="${col(fl.length ? fl[0].wert : 'x')}" fill-opacity=".9" stroke="#fff" stroke-opacity=".7" stroke-width="1.5"/>`;
       o += `<rect x="110" y="44" width="5" height="${Math.max(0, ib - 74)}" rx="2.5" fill="#fff" opacity=".2"/>`;
-      o += `<path d="M110 18V${ib - 10}" stroke="#cfd4da" stroke-width="2" opacity=".8"/><path d="M164 18V34" stroke="#cfd4da" stroke-width="2" opacity=".8"/>`;
+      o += `<path d="M${ax} ${ay}V${ib - 10}" stroke="#cfd4da" stroke-width="2" opacity=".8"/><path d="M${bx} ${by}V34" stroke="#cfd4da" stroke-width="2" opacity=".8"/>`;
       o += `<text x="146" y="${ib - 12}" font-size="8" class="wc wt wo" fill="#fff" opacity=".85">WW</text>`;
-      if (zapf || zirk_on) o += `<path d="M110 18V${ib - 10}" class="w3" style="stroke-width:1.4px"/>`;
+      if (zapf || zirk_on) o += `<path d="M${ax} ${ay}V${ib - 10}" class="w3" style="stroke-width:1.4px"/>`;
+      o += closeComponent('domestic-inner');
     }
     if (TYP === 'hygiene') {
-      let hp = `M110 18V352H100`;
+      o += openComponent('domestic-inner');
+      const inner = model.components['domestic-inner'], edge = model.connections['domestic-exchanger'];
+      const a = point(edge.from), b = point(edge.to), dx = inner.origin.x - inner.baseOrigin.x, dy = inner.origin.y - inner.baseOrigin.y;
+      let hp = `M${a.x - dx} ${a.y - dy}V352H100`;
       for (let y = 352; y > 48; y -= 24) hp += `C100 ${y - 8} 176 ${y - 4} 176 ${y - 12}C176 ${y - 20} 100 ${y - 16} 100 ${y - 24}`;
-      hp += `L164 32V18`;
+      hp += `L164 32V${b.y - dy}${b.x - dx !== 164 ? `H${b.x - dx}` : ''}`;
       o += `<path d="${hp}" fill="none" stroke="#cfd4da" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>`;
       if (zapf || zirk_on) o += `<path d="${hp}" class="w3" style="stroke-width:1.4px"/>`;
+      o += closeComponent('domestic-inner');
     }
-    if (TT) o += stub(104, 12, 12, 8) + stub(158, 12, 12, 8);
-    if (TG) o += `<rect x="73" y="${y_t - 2}" width="128" height="4" fill="url(#wwGrid)"/><path d="M73 ${y_t - 2}H201M73 ${y_t + 2}H201" stroke="#fff" stroke-opacity=".6" stroke-width=".7"/>`;
+    if (TT) o += portStub(`${tankId}.cold-water`) + portStub(`${tankId}.hot-water`);
+    if (TG) o += openComponent(tankId) + `<rect x="73" y="${y_t - 2}" width="128" height="4" fill="url(#wwGrid)"/><path d="M73 ${y_t - 2}H201M73 ${y_t + 2}H201" stroke="#fff" stroke-opacity=".6" stroke-width=".7"/>` + closeComponent(tankId);
     if (SO) {
-      const sp = `M110 374V348H180Q186 348 186 354Q186 360 180 360H128Q122 360 122 366V374`;
+      o += openComponent('solar-exchanger');
+      const edge = model.connections['solar-coil'], a = point(edge.from), b = point(edge.to);
+      const coil = model.components['solar-exchanger'], dx = coil.origin.x - coil.baseOrigin.x, dy = coil.origin.y - coil.baseOrigin.y;
+      const ax = a.x - dx, ay = a.y - dy, bx = b.x - dx, by = b.y - dy;
+      const sp = `M${ax} ${ay}V348H180Q186 348 186 354Q186 360 180 360H128Q122 360 122 366V${by}${bx !== 122 ? `H${bx}` : ''}`;
       o += `<path d="${sp}" fill="none" stroke="${F.solar}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>`;
       if (so_on) o += `<path d="${sp}" class="w3" style="stroke-width:1.6px"/>`;
-      o += stub(104, 368, 12, 8) + stub(116, 368, 12, 8);
+      o += closeComponent('solar-exchanger');
+      o += portStub(`${bufferId}.solar-supply`) + portStub(`${bufferId}.solar-return`);
     }
-    for (const y of [...(FM ? [46] : []), ...(WP ? [y_ro, y_bo] : []), ...(WP || HK ? [y_ru, y_bu] : [])]) o += stub(198, y - 6, 14, 12);
-    if (K) o += stub(62, y_ru - 6, 14, 12) + stub(62, y_bu - 6, 14, 12);
-    if (FM) o += SPLIT ? stub(198, y_bo - 20, 12, 12) : stub(131, 370, 12, 12);
-    if (hso) {
-      const heaterY = (y_ro + y_bo) / 2;
-      const crowded = fmHeater && Math.abs(heaterY - (y_bo - 14)) < 18;
-      o += stab(crowded ? (y_ro + y_bo - 14) / 2 : heaterY, hso);
-    }
-    if (hsu) o += stab((y_ru + y_bu) / 2, hsu);
-    o += fl.map(pille).join('');
+    if (FM) o += portStub(model.connections['fm-supply'].from);
+    if (WP) o += portStub(model.connections['wp-upper-supply'].to) + portStub(model.connections['wp-upper-return'].from);
+    if (WP || HK) o += WP ? portStub(model.connections['wp-lower-supply'].to) + portStub(model.connections['wp-lower-return'].from) : portStub(model.connections['hk-supply'].from) + portStub(model.connections['hk-return'].to);
+    if (K) o += portStub(`${bufferId}.additional-supply`) + portStub(`${bufferId}.additional-return`);
+    if (FM) o += portStub(model.connections['fm-return'].to);
+    if (hso) o += openComponent('upper-heater') + stab(geo.heaterY, hso) + closeComponent('upper-heater');
+    if (hsu) o += openComponent('lower-heater') + stab((y_ru + y_bu) / 2, hsu) + closeComponent('lower-heater');
+    o += fl.map((f) => { const id = `sensor-${f.index}`; return openComponent(id) + pille(f) + closeComponent(id); }).join('');
 
     /* Legionellenschutz */
     const LG = c.legionellen;
@@ -705,13 +1157,15 @@ class WarmwasserSchemaCard extends HTMLElement {
         }
       }
       const bx = TT ? 226 : 80;
-      if (t) o += `<g data-more="${esc(LG.letzte || LG.aktiv)}" class="wx${lAkt ? ' wb' : ''}"><rect x="${bx}" y="-26" width="120" height="16" rx="8" fill="${lc}" fill-opacity=".16" stroke="${lc}"/><text x="${bx + 60}" y="-15" font-size="8" class="wc wt" fill="${lc}">${t}</text></g>`;
+      if (t) o += openComponent(tankId) + `<g data-more="${esc(LG.letzte || LG.aktiv)}" class="wx${lAkt ? ' wb' : ''}"><rect x="${bx}" y="-26" width="120" height="16" rx="8" fill="${lc}" fill-opacity=".16" stroke="${lc}"/><text x="${bx + 60}" y="-15" font-size="8" class="wc wt" fill="${lc}">${t}</text></g>` + closeComponent(tankId);
     }
 
     /* ---------- Frischwassermodul ---------- */
     if (FM) {
-      o += `<rect x="340" y="14" width="110" height="90" rx="12" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="340" y="14" width="110" height="90" rx="12" fill="url(#wwBox)"/>`;
-      o += stub(332, 40, 10, 12) + (SPLIT ? stub(332, 84, 10, 12) : stub(448, 84, 10, 12)) + stub(356, 8, 12, 10) + stub(422, 8, 12, 10);
+      const b = model.components.fm, { x, y } = b.origin, { width, height } = b.bounds;
+      o += `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="12" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="12" fill="url(#wwBox)"/>`;
+      o += portStub(model.connections['fm-supply'].to) + portStub(model.connections['fm-return'].from) + portStub('fm.cold-water') + portStub('fm.hot-water');
+      o += openComponent('fm');
       o += `<text x="352" y="32" font-size="8" class="wt" letter-spacing="2" fill="#fff" opacity=".85">${esc(c.hersteller)}</text><text x="352" y="92" font-size="22" font-weight="800" fill="#fff">${esc(c.name_fm)}</text>`;
       if (FMx && (FMx.temp || FMx.durchfluss)) {
         o += `<g${more(FMx.temp || FMx.durchfluss)}><rect x="392" y="62" width="52" height="34" rx="5" fill="#0f1114" fill-opacity=".85" stroke="#fff" stroke-opacity=".08"/>`;
@@ -720,24 +1174,31 @@ class WarmwasserSchemaCard extends HTMLElement {
         o += '</g>';
         o += `<path d="M430 22C426 29 424 32 424 35A6 6 0 0 0 436 35C436 32 434 29 430 22Z" fill="#fff" opacity=".85"/>`;
       } else o += `<path d="M430 30C424 40 421 45 421 49A9 9 0 0 0 439 49C439 45 436 40 430 30Z" fill="#fff" opacity=".85"/>`;
+      o += closeComponent('fm');
     }
 
     /* ---------- Wärmequelle Sole / Wasser ---------- */
     if (QS) {
+      o += openComponent('heat-source');
       o += `<rect x="382" y="404" width="100" height="156" rx="4" fill="#6b4f3a" fill-opacity=".35"/><path d="M382 404H482" stroke="#4cb050" stroke-width="3"/>`;
       if (QT === 'wasser') {
         o += `<rect x="382" y="478" width="100" height="82" rx="4" fill="#3d8bff" fill-opacity=".25"/><path d="M382 478q6-4 12 0t12 0 12 0 12 0 12 0 12 0 12 0 12 0 4 0" fill="none" stroke="#3d8bff" stroke-opacity=".7" stroke-width="1.2"/>`;
         o += `<rect x="391" y="408" width="18" height="140" rx="3" fill="none" stroke="#9aa0a6" stroke-opacity=".7"/><rect x="421" y="408" width="18" height="140" rx="3" fill="none" stroke="#9aa0a6" stroke-opacity=".7"/>`;
       }
-      o += stub(394, 368, 12, 8) + stub(424, 368, 12, 8);
+      o += closeComponent('heat-source');
+      o += portStub(model.connections['source-in'].from) + portStub(model.connections['source-out'].to);
+      o += openComponent('heat-source');
       if (W.quelle_ein) o += `<text x="444" y="426" font-size="8.5" class="wt wv wx" data-more="${esc(W.quelle_ein)}">↑ ${fmt(S(W.quelle_ein))}</text>`;
       if (W.quelle_aus) o += `<text x="444" y="440" font-size="8.5" class="wt wv wx" data-more="${esc(W.quelle_aus)}">↓ ${fmt(S(W.quelle_aus))}</text>`;
+      o += closeComponent('heat-source');
     }
 
     /* ---------- Wärmepumpe ---------- */
     if (WP) {
-      o += `<rect x="330" y="150" width="120" height="222" rx="14" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="330" y="150" width="120" height="222" rx="14" fill="url(#wwBox)"/>`;
-      o += stub(344, 142, 12, 10) + stub(322, y_ru - 6, 10, 12) + stub(322, y_m - 6, 10, 12);
+      const b = model.components.wp, { x, y } = b.origin, { width, height } = b.bounds;
+      o += `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="14" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="14" fill="url(#wwBox)"/>`;
+      o += portStub(model.connections['wp-upper-supply'].from) + portStub(model.connections['wp-lower-supply'].from) + portStub(model.connections['wp-valve-return'].to);
+      o += openComponent('wp');
       o += `<text x="342" y="168" font-size="9" class="wt" letter-spacing="2" fill="#fff" opacity=".9">${esc(c.hersteller)}</text>`;
       if (W.cop) o += `<text x="438" y="168" font-size="9" class="we wt wx" data-more="${esc(W.cop)}" fill="#fff">COP ${isNum(S(W.cop)) ? Number(S(W.cop)).toFixed(1) : '–'}</text>`;
       o += `<circle cx="390" cy="226" r="42" fill="#15171b" stroke="#0c0d0f" stroke-width="3"/><circle cx="390" cy="226" r="36" fill="#1d2025"/>`;
@@ -763,6 +1224,7 @@ class WarmwasserSchemaCard extends HTMLElement {
       o += `<circle cx="434" cy="353" r="5" fill="${wp_sperre ? F.warm : wp_on ? F.led : '#4b5058'}" stroke="#fff" stroke-opacity=".35"${wp_on ? ' class="wb"' : ''}/>`;
       if (QT === 'luft' && (W.quelle_ein || W.quelle_aus))
         o += `<text x="390" y="382" font-size="8" class="wc wv wx" data-more="${esc(W.quelle_ein || W.quelle_aus)}">${L.luft} ${[W.quelle_ein ? fmt(S(W.quelle_ein)) : '', W.quelle_aus ? fmt(S(W.quelle_aus)) : ''].filter(Boolean).join(' → ')}</text>`;
+      o += closeComponent('wp');
     }
     o += '</svg>';
 
