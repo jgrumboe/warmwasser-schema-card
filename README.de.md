@@ -125,6 +125,30 @@ Ein vollständiges, kommentiertes Beispiel liegt in [`examples/beispiel.yaml`](e
 | `vorlauf`, `vorlauf_soll`, `raum`, `wmz` | Vorlauf, Vorlauf-Soll, Raumtemperatur, Wärmemengenzähler |
 | `typ` | `fussboden` oder `heizkoerper` |
 
+## Entwicklung des Komponentenmodells
+
+Das bestehende Diagramm wird auf ein gemeinsames internes Modell aus
+Komponentengeometrie, benannten Anschlüssen, Verbindungen und expliziten Abzweigen
+umgestellt, einschließlich Heizkreisen, Quellen und Trinkwasserkreis. Dieser Schritt ergänzt weder Konfigurationsfelder noch einen
+Layout-Editor. Bestehende Karten behalten Darstellung und Verhalten einschließlich
+der Korrektur des FM-Rücklaufs für getrennte Speicher aus
+[PR #2](https://github.com/mariofritzer/warmwasser-schema-card/pull/2).
+Dieser Rücklauf bildet die im Issue beschriebene Anlage ab und ist keine
+allgemeingültige hydraulische Regel. Das Modell beschreibt das Diagramm und ist
+keine Verrohrungsplanung.
+
+Der [zweisprachige Plan mit Entscheidungen](docs/component-model-plan.md)
+beschreibt Umfang, Alternativen, Branch-Abhängigkeiten und Folgeschritte. Für die
+Installation bleibt es bei einer JavaScript-Datei ohne Laufzeitabhängigkeiten
+und ohne Build-Schritt.
+
+Entwicklungsprüfungen (Node.js ab Version 22; keine Pakete zu installieren):
+
+```sh
+node --check warmwasser-schema-card.js
+node --test tests/*.test.cjs
+```
+
 ## Lizenz
 
 MIT – siehe [LICENSE](LICENSE).

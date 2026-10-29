@@ -171,6 +171,28 @@ A complete, commented example is in [`beispiel.yaml`](https://github.com/mariofr
 | `vorlauf`, `vorlauf_soll`, `raum`, `wmz` | Flow, flow target, room temperature, heat meter |
 | `typ` | `fussboden` (floor heating) or `heizkoerper` (radiators) |
 
+## Component model development
+
+The existing diagram is being migrated to a shared internal model of component
+geometry, named ports, connections and explicit junctions, including heating
+circuits, heat sources and domestic water. This step adds no new
+configuration fields or layout editor. Existing cards retain their drawing and
+behaviour, including the separate-tank FWM return correction from
+[PR #2](https://github.com/mariofritzer/warmwasser-schema-card/pull/2).
+That return represents the installation discussed in the issue; it is not a
+universal hydraulic rule. The model describes the diagram, not a plumbing design.
+
+See the [bilingual plan and decisions](docs/component-model-plan.md) for scope,
+alternatives, branch dependencies and follow-up work. Installation remains a
+single JavaScript file with no runtime dependencies or build step.
+
+Development checks (Node.js 22 or newer; no packages to install):
+
+```sh
+node --check warmwasser-schema-card.js
+node --test tests/*.test.cjs
+```
+
 ## License
 
 MIT – see [LICENSE](https://github.com/mariofritzer/warmwasser-schema-card/blob/main/LICENSE).
