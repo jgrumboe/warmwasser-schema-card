@@ -228,7 +228,9 @@ class WarmwasserSchemaCard extends HTMLElement {
     }).sort((a, b) => a.y - b.y);
     const TYP = c.typ, TG = TYP === 'trennblech', SPLIT = TYP === 'getrennt', TT = TYP === 'kombi' || TYP === 'hygiene';
     const y_t = 40 + (310 * clamp(c.trennung, 35, 70)) / 100, gap = SPLIT ? 32 : 18;
-    const y_ro = 70, y_bo = y_t - gap, y_ru = y_t + gap, y_bu = 340, y_m = (y_ru + 338) / 2;
+    const y_bo = y_t - gap, y_ru = y_t + gap, y_bu = 340, y_m = (y_ru + 338) / 2;
+    const fmHeater = SPLIT && !!c.heizstab_oben && !!(c.fm || c.zirkulationspumpe);
+    const y_ro = fmHeater ? Math.min(70, y_bo - 54) : 70;
     const ueber = fl.filter((f) => f.y < y_t), unter = fl.filter((f) => f.y > y_t);
     const w_ueber = ueber.length ? ueber[ueber.length - 1].wert : unter.length ? unter[0].wert : 'x';
     const w_unter = unter.length ? unter[0].wert : w_ueber;
@@ -425,13 +427,27 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* ---------- Rohre ---------- */
     if (FM) {
       o += rohr('M206 46H336', F.warm, fm_on);
-      o += rohr('M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376', F.kalt, fm_on);
+      // Separate tanks need the fresh-water return on the hot-water tank,
+      // while shared tanks retain the bottom connection.
+      const fmRuecklaufY = y_bo - 14;
+      const radius = Math.min(8, Math.max(0, (fmRuecklaufY - 90) / 2));
+      const fmRuecklauf = SPLIT
+        ? `M336 90H${315 + radius}Q315 90 315 ${90 + radius}V${fmRuecklaufY - radius}Q315 ${fmRuecklaufY} ${315 - radius} ${fmRuecklaufY}H206`
+        : 'M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376';
+      o += rohr(fmRuecklauf, F.kalt, fm_on);
     }
     if (WP) {
       o += rohr(`M206 ${y_bo}H252Q262 ${y_bo} 262 ${y_bo + 10}V${y_m - 14}`, CK, wpO, tO);
       o += rohr(`M206 ${y_bu}H252Q262 ${y_bu} 262 ${y_bu - 10}V${y_m + 14}`, CK, wpU, tU);
       o += rohr(`M277 ${y_m}H326`, CK, wp_on);
-      o += rohr(`M350 146V136Q350 128 342 128H308Q300 128 300 120V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H206`, CW, wpO, tO);
+      // Bridge the fresh-water return where it crosses the hot-water charging pipe.
+      const wwLadung = FM && SPLIT && y_bo - 14 > 128
+        ? 'H323A8 8 0 0 1 307 128'
+        : 'H308';
+      const fmY = y_bo - 14;
+      const verticalBridge = FM && SPLIT && fmY >= y_ro + 12 && fmY <= 116
+        ? `V${fmY + 4}A4 4 0 0 1 300 ${fmY - 4}` : '';
+      o += rohr(`M350 146V136Q350 128 342 128${wwLadung}Q300 128 300 120${verticalBridge}V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H206`, CW, wpO, tO);
       o += rohr(`M326 ${y_ru}H270A8 8 0 0 0 254 ${y_ru}H206`, CW, wpU, tU);
       if (QS) {
         const qon = wp_on || (W.quelle_pumpe ? ON(W.quelle_pumpe) : false);
@@ -665,8 +681,12 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
     for (const y of [...(FM ? [46] : []), ...(WP ? [y_ro, y_bo] : []), ...(WP || HK ? [y_ru, y_bu] : [])]) o += stub(198, y - 6, 14, 12);
     if (K) o += stub(62, y_ru - 6, 14, 12) + stub(62, y_bu - 6, 14, 12);
-    if (FM) o += stub(131, 370, 12, 12);
-    if (hso) o += stab((y_ro + y_bo) / 2, hso);
+    if (FM) o += SPLIT ? stub(198, y_bo - 20, 12, 12) : stub(131, 370, 12, 12);
+    if (hso) {
+      const heaterY = (y_ro + y_bo) / 2;
+      const crowded = fmHeater && Math.abs(heaterY - (y_bo - 14)) < 18;
+      o += stab(crowded ? (y_ro + y_bo - 14) / 2 : heaterY, hso);
+    }
     if (hsu) o += stab((y_ru + y_bu) / 2, hsu);
     o += fl.map(pille).join('');
 
@@ -691,7 +711,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* ---------- Frischwassermodul ---------- */
     if (FM) {
       o += `<rect x="340" y="14" width="110" height="90" rx="12" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="340" y="14" width="110" height="90" rx="12" fill="url(#wwBox)"/>`;
-      o += stub(332, 40, 10, 12) + stub(448, 84, 10, 12) + stub(356, 8, 12, 10) + stub(422, 8, 12, 10);
+      o += stub(332, 40, 10, 12) + (SPLIT ? stub(332, 84, 10, 12) : stub(448, 84, 10, 12)) + stub(356, 8, 12, 10) + stub(422, 8, 12, 10);
       o += `<text x="352" y="32" font-size="8" class="wt" letter-spacing="2" fill="#fff" opacity=".85">${esc(c.hersteller)}</text><text x="352" y="92" font-size="22" font-weight="800" fill="#fff">${esc(c.name_fm)}</text>`;
       if (FMx && (FMx.temp || FMx.durchfluss)) {
         o += `<g${more(FMx.temp || FMx.durchfluss)}><rect x="392" y="62" width="52" height="34" rx="5" fill="#0f1114" fill-opacity=".85" stroke="#fff" stroke-opacity=".08"/>`;
