@@ -367,17 +367,19 @@ class WarmwasserSchemaCard extends HTMLElement {
         `<text x="31" y="${r1(y + 10)}" font-size="12" class="wc wt wv">${fmt(f.wert)}</text>` +
         `<circle cx="72" cy="${y}" r="4" fill="${cl}" stroke="#fff" stroke-width="1.5"/></g>`;
     };
-    const stab = (y, hs) => {
+    const stab = (y, hs, left = false) => {
       const cl = hs.on ? F.aktiv : '#b0b6bd', pitch = 70 / c.hs_stufen;
-      let s = hs.on ? `<ellipse cx="156" cy="${y}" rx="50" ry="13" fill="url(#wwHeat)" class="wb" style="animation-duration:2.4s"/>` : '';
+      const textMirror = left ? ' transform="translate(284 0) scale(-1 1)"' : '';
+      let s = left ? '<g transform="translate(274 0) scale(-1 1)">' : '';
+      s += hs.on ? `<ellipse cx="156" cy="${y}" rx="50" ry="13" fill="url(#wwHeat)" class="wb" style="animation-duration:2.4s"/>` : '';
       s += `<g${more(hs.stufe || hs.leistung || hs.temp)}><path d="M202 ${y}h-10l-3-4${'l-6 8l-6-8'.repeat(6)}l-3 4" fill="none" stroke="${cl}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
       s += `<rect x="198" y="${y - 11}" width="16" height="22" rx="3" fill="#2b2f35" stroke="${cl}" stroke-width="1.5"/>`;
-      s += `<text x="192" y="${y - 13}" font-size="9.5" class="we wo wt" fill="${hs.on ? F.aktiv : '#fff'}">${esc(hs.name)}</text>`;
+      s += `<text x="192" y="${y - 13}" font-size="9.5" class="we wo wt"${textMirror} fill="${hs.on ? F.aktiv : '#fff'}">${esc(hs.name)}</text>`;
       if (hs.stufe) for (let i = 0; i < c.hs_stufen; i++)
         s += `<rect x="${r2(124 + i * pitch)}" y="${y + 11}" width="${r2(pitch - 2)}" height="4" rx="1.5" fill="${i < hs.step ? F.aktiv : 'rgba(255,255,255,.3)'}"/>`;
       const info = [hs.leistung ? watt(hs.p) : '', hs.temp ? fmt(S(hs.temp)) : ''].filter(Boolean).join(' · ');
-      if (info) s += `<text x="192" y="${y + (hs.stufe ? 28 : 22)}" font-size="9" class="we wo" fill="#fff">${info}</text>`;
-      return s + '</g>';
+      if (info) s += `<text x="192" y="${y + (hs.stufe ? 28 : 22)}" font-size="9" class="we wo"${textMirror} fill="#fff">${info}</text>`;
+      return s + '</g>' + (left ? '</g>' : '');
     };
     const chip = (icon, text, on, e) =>
       `<span class="chip${e ? ' wx' : ''}"${e ? ` data-more="${esc(e)}"` : ''}${on ? ` style="background:color-mix(in srgb,${F.aktiv} 16%,transparent);color:${F.aktiv}"` : ''}><ha-icon icon="${icon}" style="--mdc-icon-size:15px"></ha-icon>${text}</span>`;
@@ -428,8 +430,9 @@ class WarmwasserSchemaCard extends HTMLElement {
       // Separate tanks need the fresh-water return on the hot-water tank,
       // while shared tanks retain the bottom connection.
       const fmRuecklaufY = y_bo - 14;
+      const radius = Math.min(8, Math.max(0, (fmRuecklaufY - 90) / 2));
       const fmRuecklauf = SPLIT
-        ? `M452 90H458Q466 90 466 98V120H315V${fmRuecklaufY}H206`
+        ? `M336 90H${315 + radius}Q315 90 315 ${90 + radius}V${fmRuecklaufY - radius}Q315 ${fmRuecklaufY} ${315 - radius} ${fmRuecklaufY}H206`
         : 'M452 90H458Q466 90 466 98V382Q466 390 458 390H145Q137 390 137 382V376';
       o += rohr(fmRuecklauf, F.kalt, fm_on);
     }
@@ -441,7 +444,10 @@ class WarmwasserSchemaCard extends HTMLElement {
       const wwLadung = FM && SPLIT && y_bo - 14 > 128
         ? 'H323A8 8 0 0 1 307 128'
         : 'H308';
-      o += rohr(`M350 146V136Q350 128 342 128${wwLadung}Q300 128 300 120V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H206`, CW, wpO, tO);
+      const fmY = y_bo - 14;
+      const verticalBridge = FM && SPLIT && fmY >= y_ro + 12 && fmY <= 116
+        ? `V${fmY + 4}A4 4 0 0 1 300 ${fmY - 4}` : '';
+      o += rohr(`M350 146V136Q350 128 342 128${wwLadung}Q300 128 300 120${verticalBridge}V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H206`, CW, wpO, tO);
       o += rohr(`M326 ${y_ru}H270A8 8 0 0 0 254 ${y_ru}H206`, CW, wpU, tU);
       if (QS) {
         const qon = wp_on || (W.quelle_pumpe ? ON(W.quelle_pumpe) : false);
@@ -676,7 +682,11 @@ class WarmwasserSchemaCard extends HTMLElement {
     for (const y of [...(FM ? [46] : []), ...(WP ? [y_ro, y_bo] : []), ...(WP || HK ? [y_ru, y_bu] : [])]) o += stub(198, y - 6, 14, 12);
     if (K) o += stub(62, y_ru - 6, 14, 12) + stub(62, y_bu - 6, 14, 12);
     if (FM) o += SPLIT ? stub(198, y_bo - 20, 12, 12) : stub(131, 370, 12, 12);
-    if (hso) o += stab((y_ro + y_bo) / 2, hso);
+    if (hso) {
+      const heaterY = (y_ro + y_bo) / 2;
+      const left = !!(SPLIT && FM && Math.abs(heaterY - (y_bo - 14)) < 18);
+      o += stab(heaterY - (left ? 8 : 0), hso, left);
+    }
     if (hsu) o += stab((y_ru + y_bu) / 2, hsu);
     o += fl.map(pille).join('');
 
@@ -701,7 +711,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     /* ---------- Frischwassermodul ---------- */
     if (FM) {
       o += `<rect x="340" y="14" width="110" height="90" rx="12" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="340" y="14" width="110" height="90" rx="12" fill="url(#wwBox)"/>`;
-      o += stub(332, 40, 10, 12) + stub(448, 84, 10, 12) + stub(356, 8, 12, 10) + stub(422, 8, 12, 10);
+      o += stub(332, 40, 10, 12) + (SPLIT ? stub(332, 84, 10, 12) : stub(448, 84, 10, 12)) + stub(356, 8, 12, 10) + stub(422, 8, 12, 10);
       o += `<text x="352" y="32" font-size="8" class="wt" letter-spacing="2" fill="#fff" opacity=".85">${esc(c.hersteller)}</text><text x="352" y="92" font-size="22" font-weight="800" fill="#fff">${esc(c.name_fm)}</text>`;
       if (FMx && (FMx.temp || FMx.durchfluss)) {
         o += `<g${more(FMx.temp || FMx.durchfluss)}><rect x="392" y="62" width="52" height="34" rx="5" fill="#0f1114" fill-opacity=".85" stroke="#fff" stroke-opacity=".08"/>`;

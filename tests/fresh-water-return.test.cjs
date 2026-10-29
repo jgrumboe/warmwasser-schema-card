@@ -18,9 +18,21 @@ test('separate tanks return the fresh-water module to the hot-water tank', () =>
   for (const split of [35, 50, 70]) {
     const svg = render('getrennt', split);
     const returnY = 40 + 310 * split / 100 - 32 - 14;
-    assert.ok(svg.includes(`M452 90H458Q466 90 466 98V120H315V${returnY}H206`));
+    const radius = Math.min(8, Math.max(0, (returnY - 90) / 2));
+    assert.ok(svg.includes(`M336 90H${315 + radius}Q315 90 315 ${90 + radius}V${returnY - radius}Q315 ${returnY} ${315 - radius} ${returnY}H206`));
+    assert.ok(svg.includes('<rect x="332" y="84" width="10" height="12"'));
     assert.ok(!svg.includes('H145Q137 390 137 382V376'));
   }
+});
+
+test('small separate tanks bridge the return crossing and move a conflicting upper heater to the left', () => {
+  const card = new Card();
+  card.setConfig({ speicher: { typ: 'getrennt', trennung: 35 }, fm: { pumpe: 'binary_sensor.fm' }, wp: { betrieb: 'binary_sensor.wp' }, heizstab_oben: { leistung: 'sensor.heater' } });
+  card._hass = { language: 'de', states: { 'binary_sensor.fm': { state: 'on' }, 'sensor.heater': { state: '500' } } };
+  const svg = card._render();
+  assert.ok(svg.includes('V106.5A4 4 0 0 1 300 98.5'));
+  assert.ok(svg.includes('<g transform="translate(274 0) scale(-1 1)">'));
+  assert.ok(svg.includes('transform="translate(284 0) scale(-1 1)"'));
 });
 
 test('hot-water charging pipe jumps over the fresh-water return only at a crossing', () => {
