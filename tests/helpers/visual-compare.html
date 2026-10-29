@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Warmwasser visual comparison</title>
+<style>
+  body { margin: 0; font: 15px system-ui, sans-serif; background: #ddd; color: #161616 }
+  header { position: sticky; top: 0; z-index: 2; background: #eee; padding: 8px 14px; display: flex; align-items: center; gap: 18px }
+  .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+  section { min-width: 0 }
+  h2 { text-align: center; margin: 8px }
+  iframe { width: 100%; height: 4400px; border: 0; display: block }
+</style>
+<header><strong>Visual comparison</strong>
+  <label>Scenario <select id="scenario"><option value="all">all four</option></select></label>
+  <label>Language <select id="language"><option>de</option><option>en</option></select></label>
+  <label>Theme <select id="theme"><option>dark</option><option>light</option></select></label>
+  <label>Geometry probe <select id="probe"><option value="">none</option><option>additional-heat</option><option>wp</option><option>tank</option><option>buffer-tank</option><option>solar-collector</option><option>manifolds</option><option>heating-circuit-0</option><option>heat-source</option></select></label>
+  <button id="reload">Reload sources</button><button id="inspect">Compare SVG details</button><span>Check browser console for errors from either frame.</span>
+</header>
+<output id="inspection" aria-live="polite"></output>
+<div class="columns"><section><h2>Baseline 5637cc24</h2><iframe id="baseline" title="Baseline"></iframe></section><section><h2>Current</h2><iframe id="current" title="Current"></iframe></section></div>
+<script>
+const scenarios = [
+  { name: 'Getrennt · full system', config: { speicher: { typ: 'getrennt', trennung: 50 }, fuehler: [['Oben', 'sensor.top', 15], ['Unten', 'sensor.bottom', 85]],
+    wp: { typ: 'sole', betrieb: 'sensor.on', leistung: 'sensor.power', ventil: 'sensor.valve', quelle_ein: 'sensor.bottom', quelle_aus: 'sensor.temp', vorlauf: 'sensor.top', ruecklauf: 'sensor.bottom', cop: 'sensor.cop', wmz: 'sensor.energy' },
+    fm: { pumpe: 'sensor.on', temp: 'sensor.temp', durchfluss: 'sensor.flow' }, zirkulationspumpe: 'sensor.on', weiche: { temp: 'sensor.temp' },
+    heizkreise: [{ pumpe: 'sensor.on', mischer: 'sensor.mix', vorlauf: 'sensor.temp', raum: 'sensor.room' }, { pumpe: 'sensor.on', vorlauf: 'sensor.temp' }],
+    solar: { pumpe: 'sensor.on', kollektor: 'sensor.top', leistung: 'sensor.power' }, zusatzwaerme: { typ: 'holzvergaser', temp: 'sensor.temp', pumpe: 'sensor.on', modus: 'sensor.mode' } } },
+  { name: 'Schicht · minimal', config: { speicher: { typ: 'schicht' }, fuehler: [] } },
+  ...['kombi', 'hygiene'].map(typ => ({ name: typ + ' · heat pump and water', config: { speicher: { typ }, fuehler: [['Oben', 'sensor.top', 15], ['Unten', 'sensor.bottom', 85]], wp: { betrieb: 'sensor.on', leistung: 'sensor.power', ventil: 'sensor.valve' }, fm: { temp: 'sensor.temp', durchfluss: 'sensor.flow' }, heizkreise: [{ pumpe: 'sensor.on', mischer: 'sensor.mix' }] } }))
+];
+const full = scenarios[0].config;
+const extras = [
+  { name: 'Getrennt 35 · FM WP upper heater', config: { speicher: { typ: 'getrennt', trennung: 35 }, fuehler: [['Oben', 'sensor.top', 15], ['Unten', 'sensor.bottom', 85]], fm: { pumpe: 'sensor.on', temp: 'sensor.temp', durchfluss: 'sensor.flow' }, wp: { betrieb: 'sensor.on', leistung: 'sensor.power', ventil: 'sensor.valve' }, heizstab_oben: { stufe: 'sensor.mix', leistung: 'sensor.power', temp: 'sensor.top' } } },
+  { name: 'Luft · animated heat pump', config: { ...full, wp: { ...full.wp, typ: 'luft' } } },
+  { name: 'Wasser · source loop', config: { ...full, wp: { ...full.wp, typ: 'wasser' } } },
+  { name: 'Fernwärme · primary loop', config: { ...full, zusatzwaerme: { ...full.zusatzwaerme, typ: 'fernwaerme' } } },
+  { name: 'Schicht · full with heaters and sensors', config: { ...full, speicher: { typ: 'schicht' },
+    heizstab_oben: { stufe: 'sensor.mix', leistung: 'sensor.power', temp: 'sensor.top' },
+    heizstab_unten: { leistung: 'sensor.power', temp: 'sensor.bottom' } } }
+];
+const available = [...scenarios, ...extras];
+for (const [i, item] of available.entries()) {
+  const option = document.createElement('option'); option.value = String(i); option.textContent = item.name;
+  document.querySelector('#scenario').append(option);
+}
+const states = Object.fromEntries(Object.entries({ top: '54.2', bottom: '31.7', temp: '42.3', on: 'on', power: '1650', valve: 'warmwasser', cop: '3.8', energy: '123.4', flow: '4.2', mix: '35', room: '21.5', mode: 'auto' }).map(([k, state]) => ['sensor.' + k, { state, attributes: {} }]));
+function load() {
+  const theme = document.querySelector('#theme').value;
+  const language = document.querySelector('#language').value;
+  const probe = document.querySelector('#probe').value;
+  const choice = document.querySelector('#scenario').value;
+  const selected = choice === 'all' ? scenarios : [available[Number(choice)]];
+  document.querySelector('#inspection').textContent = '';
+  window.scrollTo(0, 0);
+  for (const id of ['baseline', 'current']) {
+    const frame = document.getElementById(id);
+    frame.style.height = choice === 'all' ? '4400px' : '1100px';
+    // Each frame has its own custom element registry and loads only one implementation.
+    frame.srcdoc = `<!doctype html><html><head><style>
+      :root { --primary-text-color: ${theme === 'dark' ? '#e8e8e8' : '#222'}; --secondary-text-color: ${theme === 'dark' ? '#aaa' : '#555'}; --secondary-background-color: ${theme === 'dark' ? '#282b31' : '#e5e7eb'}; }
+      body { margin: 0; padding: 8px; font: 14px system-ui; color: var(--primary-text-color); background: ${theme === 'dark' ? '#15171a' : '#fafafa'}; }
+      ha-card { display: block; background: ${theme === 'dark' ? '#202328' : '#fff'}; border-radius: 12px; box-shadow: 0 1px 5px #0003; }
+      ha-icon { display: inline-block; width: 1em; height: 1em; } h3 { margin: 18px 4px 6px }
+    </style></head><body><div id="cards"></div><script src="/${id}.js"><\/script><script>
+      const scenarios = ${JSON.stringify(selected)}; const states = ${JSON.stringify(states)};
+      for (const item of scenarios) {
+        const title = document.createElement('h3'); title.textContent = item.name; document.querySelector('#cards').append(title);
+        const card = document.createElement('warmwasser-schema-card'); card.setConfig(item.config);
+        const component = ${JSON.stringify(id === 'current' ? probe : '')} && card._model?.components[${JSON.stringify(id === 'current' ? probe : '')}];
+        if (component) { component.origin.x += 20; component.origin.y += 12; }
+        card.hass = { states, language: ${JSON.stringify(language)}, callService: (...args) => console.log('Stub callService', ...args) };
+        document.querySelector('#cards').append(card);
+      }
+    <\/script></body></html>`;
+  }
+}
+// Inspect rendered definitions, clipping, animation classes and computed transform origins.
+// These visual smoke checks use a real browser, with HA icons stubbed.
+document.querySelector('#inspect').onclick = () => {
+  const signatures = ['baseline', 'current'].map(id => {
+    const doc = document.getElementById(id).contentDocument;
+    return [...doc.querySelectorAll('warmwasser-schema-card')].map(card => {
+      const root = card.shadowRoot; const svg = root.querySelector('svg');
+      return { viewBox: svg?.getAttribute('viewBox'),
+        definitions: [...svg.querySelectorAll('defs *')].map(el => el.outerHTML),
+        clips: [...svg.querySelectorAll('[clip-path]')].map(el => [el.tagName, el.getAttribute('clip-path')]),
+        animations: [...svg.querySelectorAll('.w3,.wb,.wp,.wr,.wg,.wl')].map(el => [el.tagName, el.getAttribute('class'), el.getAttribute('style'), getComputedStyle(el).transformOrigin]),
+        geometry: [...svg.querySelectorAll('[clip-path], .wp, .wr, .wg, .wl')].map(el => {
+          const b = el.getBBox(), m = el.getCTM();
+          return { tag: el.tagName, class: el.getAttribute('class'), clip: el.getAttribute('clip-path'),
+            bbox: [b.x, b.y, b.width, b.height], ctm: m && [m.a, m.b, m.c, m.d, m.e, m.f] };
+        }) };
+    });
+  });
+  console.log('SVG detail report: baseline and current (viewBox, defs, clips, animations, geometry bbox and CTM)', signatures);
+  const mismatches = signatures[0].flatMap((item, i) => JSON.stringify(item) === JSON.stringify(signatures[1][i]) ? [] : [i + 1]);
+  document.querySelector('#inspection').textContent = mismatches.length ? 'SVG detail mismatch in card(s): ' + mismatches.join(', ') : 'SVG definitions, clipping, animation origins, BBox and CTM match across all cards. See console for detail.';
+};
+document.querySelector('#reload').onclick = load;
+document.querySelector('#theme').onchange = load;
+document.querySelector('#language').onchange = load;
+document.querySelector('#probe').onchange = load;
+document.querySelector('#scenario').onchange = load;
+load();
+</script>
+</html>
