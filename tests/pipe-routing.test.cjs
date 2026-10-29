@@ -40,10 +40,6 @@ test('FM rendering consumes each compiled path for every layer and state changes
     const off=c._render(); for(const id of ['fm-supply','fm-return']) assert.ok(!off.includes(`d="${routes[id].path}" class="w3"`));
   }
 });
-test('unsupported FM movement is explicit in full configurations', () => {
-  const c=card('getrennt',{wp:{betrieb:'sensor.wp'}}); c._model.components.fm.origin.x+=10;
-  assert.throws(()=>c._render(), e=>e.code==='unsupported-configuration');
-});
 test('moving a tank resolves its ports locally and routes to the moved endpoints', () => {
   for(const type of ['getrennt','schicht','trennblech']) {
     const c=card(type), m=c._model, tank=m.components[type==='getrennt'?'hot-tank':'tank'];
