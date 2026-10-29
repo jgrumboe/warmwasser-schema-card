@@ -119,7 +119,7 @@ A complete, commented example is in [`beispiel.yaml`](https://github.com/mariofr
 | `volumen` | – | Volume in litres (buffer for `getrennt`) |
 | `volumen_ww` | – | Hot water tank volume (`getrennt` only) |
 | `trennung` | `50` | Height of baffle / split / inner boiler in % (35–70) |
-| `heizkreis_separat` | `false` | With `typ: getrennt`, draw separate heating circuit supply and return connections on the left of the buffer. Currently supported without an additional heat source, solar thermal or hydraulic separator; otherwise the existing layout is retained. |
+| `heizkreis_separat` | `false` | With `typ: getrennt`, draw separate heating circuit supply and return connections at the buffer. With solar, additional heat or a hydraulic separator and a heat pump this is available with a saved layout or shared supply. |
 
 ### `wp` – heat pump
 
@@ -133,6 +133,7 @@ A complete, commented example is in [`beispiel.yaml`](https://github.com/mariofr
 | `ventil` | Diverter valve: `on`/`off`, 0–100, or text containing e.g. “Warmwasser/DHW” or “Heizung/heating”. Without it, both zones are shown as charging. |
 | `ventil_position` | `ruecklauf` (return; default, preserves the previous diagram) or `vorlauf` (supply): location of the diverter valve in the diagram. |
 | `ruecklauf_anbindung` | With `ventil_position: vorlauf`, `gemeinsam` (combined, default) or `getrennt` (separate tank returns to the heat pump). |
+| `vorlauf_anbindung` | With a return-side valve: `getrennt` (default) or `gemeinsam` for a combined heat-pump supply with a junction. The combined option requires a supported configuration; separate tanks with a heating circuit require separate heating-circuit connections. |
 | `kuehlen` | Cooling mode – heating circuit colours are swapped |
 | `sperre`, `abtauen`, `sg_ready` | Grid lock, defrost, SG Ready |
 | `quelle_ein`, `quelle_aus`, `quelle_pumpe` | Source temperatures and source pump |
@@ -173,6 +174,55 @@ A complete, commented example is in [`beispiel.yaml`](https://github.com/mariofr
 | `mischer` | −100 = return only, 0 = half/half, 100 = buffer only |
 | `vorlauf`, `vorlauf_soll`, `raum`, `wmz` | Flow, flow target, room temperature, heat meter |
 | `typ` | `fussboden` (floor heating) or `heizkoerper` (radiators) |
+
+### Arrange the diagram
+
+In the card editor, open **Arrange diagram** to select a component and move it using the arrow buttons or by dragging. Positions are stored in the optional `layout` section of the card configuration. Undo and redo apply to the current editor session; **Reset** removes the editable positions.
+
+With separate hot-water and buffer tanks, separate heating-circuit connections and a supply-side or return-side diverter valve, the tanks, heat pump, valve, fresh-water module and heating manifold can be moved in two dimensions. Combined and separate heat-pump returns are supported with a supply-side valve. With a return-side valve, an optional common supply has a movable junction. Multiple heating circuits move together with their manifold, which can also be selected directly. When the manifold is placed above the buffer, the circuits point upwards. A common return junction can be moved. A ground or water heat source follows the heat pump and can also be moved separately.
+
+Separate-tank systems without a displayed heating circuit or with separate heating-circuit connections are supported with or without a heat pump. Without a heat pump or another heat source, the heating circuit can also move without the separate-port setting. Stratified, baffle-plate, combi and hygienic tanks can move with a heat pump, solar thermal and additional heat; a hydraulic separator is also supported when a heating circuit is present. Their drinking-water connections move with the tank. Other system variants retain limited movement.
+
+Solar thermal and additional heat can also be arranged on separate tanks, with or without a heat pump. A hydraulic separator requires a displayed heating circuit. A heat pump and heating circuit require separate heating-circuit connections.
+
+A hydraulic separator can be moved in a system with heating circuits together with the tanks, manifold and displayed heat sources. Its four pipes remain distinct.
+
+Pipe routes are calculated automatically with rounded corners and bridges at crossings. The heat pump, diverter valve, tanks, heating manifold and fresh-water module switch their connections to the facing side when needed. If two buffer connections occupy the same point, the heating-circuit port is shifted vertically. Overlapping components and positions without a suitable route are not saved. The search cannot yet find a route for every possible arrangement; try another position if necessary. Without `layout`, the original diagram is retained.
+
+
+### Positions in YAML
+
+When the card is saved, Home Assistant receives the editor's configuration.
+Positions are stored in the optional `layout` section, for example:
+
+```yaml
+layout:
+  version: 1
+  wp:
+    x: 200
+    y: -100
+  quelle:
+    x: 200
+    y: 100
+  ruecklauf_abzweig:
+    x: -20
+    y: 0
+```
+
+`x` and `y` are offsets in diagram coordinates: positive values move right and
+down. Missing values mean `0`. `speicher` moves both tanks; `warmwasser` and
+`puffer` are additional offsets relative to `speicher`. `quelle`, `ruecklauf_abzweig` and `vorlauf_abzweig` are additional offsets relative
+to the heat pump. Other position keys are `wp`, `ventil`, `heizkreis`, `fm`,
+`kamin` and `solar`. Routes and connection
+sides are calculated from positions and the current system configuration, not
+stored as fixed SVG paths.
+
+Without `layout`, the default arrangement is shown. Unknown layout versions
+are not applied. Changes to equipment, system topology or routing can alter a
+saved arrangement, make part of it unsupported, or leave no clear pipe route;
+the stored values are not automatically deleted. Check the arrangement in the
+editor after such changes. Future changes to the meaning of `version: 1` require
+an explicit migration.
 
 ## License
 
