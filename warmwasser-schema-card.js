@@ -278,16 +278,16 @@ function diagramModel(c) {
   }
   if (fm || tt) {
     const tk = fm ? 362 : 110, tw = fm ? 428 : 164, bottom = fm ? 12 : 18;
-    const boundary = component('domestic-boundary', tk, -26, tw - tk, 1); boundary.boundary = true;
+    const boundary = component('domestic-boundary', tk, -26, tw - tk, 1, fm ? components.fm : hot); boundary.boundary = true;
     const cold = p(boundary, 'cold', tk, -26, 'top', 'inlet', null, 'domestic-water');
     const warm = p(boundary, 'hot', tw, -26, 'top', 'outlet', null, 'domestic-water');
     const device = fm ? 'fm' : hot.id;
     if (c.zirkulationspumpe) {
-      const cj = junction('domestic-cold-tee', tk, -6, null, 'domestic-water');
-      const wj = junction('domestic-hot-tee', tw, -6, null, 'domestic-water');
+      const cj = junction('domestic-cold-tee', tk, -6, boundary, 'domestic-water');
+      const wj = junction('domestic-hot-tee', tw, -6, boundary, 'domestic-water');
       connection('domestic-cold', cold, `${device}.cold-water`, [cj]);
       connection('domestic-hot', `${device}.hot-water`, warm, [wj]);
-      const pump = component('circulation-pump', (tk + tw) / 2 - 10, -16, 20, 20);
+      const pump = component('circulation-pump', (tk + tw) / 2 - 10, -16, 20, 20, boundary);
       const a = p(pump, 'in', (tk + tw) / 2 + 10, -6, 'right', 'inlet', null, 'domestic-water');
       const b = p(pump, 'out', (tk + tw) / 2 - 10, -6, 'left', 'outlet', null, 'domestic-water');
       connection('circulation-hot', wj, a); connection('circulation-pump-through', a, b); connection('circulation-cold', b, cj);
@@ -558,7 +558,7 @@ function routeOrthogonalConnection(request) {
  * validate straight segments including halfWidth and owner escape exceptions.
  * This compiler additionally validates conservative corner/bridge envelopes. */
 function compilePipeRoutes(routes, options = {}) {
-  const radius = options.radius ?? 8, bridgeRadius = options.bridgeRadius ?? 4, halfWidth = options.halfWidth ?? 5;
+  const radius = options.radius ?? 8, bridgeRadius = options.bridgeRadius ?? 6, halfWidth = options.halfWidth ?? 5;
   const obstacles = options.obstacles ?? [];
   const fail = (code, ids, reason) => ({status:'failed', code, connectionIds:[...new Set(ids)].sort(), reason});
   if (![radius, bridgeRadius, halfWidth].every(n => Number.isFinite(n) && n >= 0) || bridgeRadius === 0 || !Array.isArray(routes)) return fail('invalid-input', [], 'Invalid compiler options or routes');
@@ -751,7 +751,7 @@ function routeDiagramConnections(model, ids, options = {}) {
     candidates.push({ id, role, points:routed.points, nodes:resolved.map(p => ({ ref:p.ref, x:p.x, y:p.y })) });
   }
   if (candidates.length) {
-    const compiled = compilePipeRoutes(candidates, { radius:8, bridgeRadius:4, halfWidth:5, obstacles });
+    const compiled = compilePipeRoutes(candidates, { radius:8, bridgeRadius:6, halfWidth:5, obstacles });
     if (compiled.status === 'routed') for (const [id, route] of Object.entries(compiled.routes)) result[id] = { status:'routed', ...route, paintOrder:compiled.paintOrder.indexOf(id) };
     else for (const c of candidates) result[c.id] = { status:'failed', code:compiled.code, reason:compiled.reason };
   }
@@ -1122,8 +1122,16 @@ class WarmwasserSchemaCard extends HTMLElement {
       // Separate tanks need the fresh-water return on the hot-water tank,
       // while shared tanks retain the bottom connection.
       const radius = Math.min(8, Math.max(0, (ft.y - fr.y) / 2));
+      const simpleReturn = WP && ft.y > 108 && ft.y <= 147 && !c.wp.wmz;
+      const returnX = simpleReturn ? 280 : WP && (ft.y > 108 || c.wp.wmz) ? 322 : 315;
+      // Near the charging-pipe corner, cross its straight leg instead. With a
+      // meter on that leg, carry the return below the crossing and back up.
+      const returnDetour = WP && ft.y <= 147 && !!c.wp.wmz;
+      const detourY = Math.max(155, ft.y + 32);
       const fmRuecklauf = SPLIT
-        ? `M${fr.x} ${fr.y}H${315 + radius}Q315 ${fr.y} 315 ${fr.y + radius}V${ft.y - radius}Q315 ${ft.y} ${315 - radius} ${ft.y}H${ft.x}`
+        ? returnDetour
+          ? `M${fr.x} ${fr.y}H330Q322 ${fr.y} 322 ${fr.y + 8}V${detourY - 8}Q322 ${detourY} 314 ${detourY}H288Q280 ${detourY} 280 ${detourY - 8}V${ft.y + 8}Q280 ${ft.y} 272 ${ft.y}H${ft.x}`
+          : `M${fr.x} ${fr.y}H${returnX + radius}Q${returnX} ${fr.y} ${returnX} ${fr.y + radius}V${ft.y - radius}Q${returnX} ${ft.y} ${returnX - radius} ${ft.y}H${ft.x}`
         : `M${fr.x} ${fr.y}H458Q466 90 466 98V382Q466 390 458 390H${ft.x + 8}Q${ft.x} 390 ${ft.x} 382V${ft.y}`;
       o += primaryPipe('fm-return', fmRuecklauf, F.kalt, fm_on);
     }
@@ -1138,19 +1146,22 @@ class WarmwasserSchemaCard extends HTMLElement {
       o += primaryPipe('wp-lower-return', `M${wu.x} ${wu.y}${returnTee && returnTee.y !== wu.y ? `V${returnTee.y}` : ''}H252Q262 ${returnTee ? returnTee.y : y_bu} 262 ${(returnTee ? returnTee.y : y_bu) - 10}V${wvu.y}${wvu.x !== 262 ? `H${wvu.x}` : ''}`, CK, wpU, tU);
       o += primaryPipe('wp-valve-return', `M${wvp.x} ${wvp.y}H${wr.x}${wr.y !== wvp.y ? `V${wr.y}` : ''}`, CK, wp_on);
       // Bridge the fresh-water return where it crosses the hot-water charging pipe.
-      const wwLadung = FM && SPLIT && y_bo - 14 > 128
-        ? 'H323A8 8 0 0 1 307 128'
+      const simpleReturn = FM && SPLIT && y_bo - 14 > 108 && y_bo - 14 <= 147 && !c.wp.wmz;
+      const wwLadung = FM && SPLIT && (y_bo - 14 > 108 || c.wp.wmz) && !simpleReturn
+        ? 'H328A6 6 0 0 1 316 128H308'
         : 'H308';
       const fmY = FM && SPLIT ? point(model.connections['fm-return'].to).y : y_bo - 14;
-      const verticalBridge = FM && SPLIT && fmY >= y_ro + 12 && fmY <= 116
-        ? `V${fmY + 4}A4 4 0 0 1 300 ${fmY - 4}` : '';
+      const bridgeY = simpleReturn ? 90 : fmY;
+      const verticalBridge = FM && SPLIT && (simpleReturn || (!c.wp.wmz && fmY >= y_ro + 20 && fmY <= 108))
+        ? `V${bridgeY + 6}A6 6 0 0 1 300 ${bridgeY - 6}` : '';
       const meter = model.connections['wp-upper-supply'].via.length ? model.junctions[model.connections['wp-upper-supply'].via[0]] : null;
       const meterDetour = meter && (meter.x !== 300 || meter.y > 120 || meter.y < y_ro + 8) ? `V${meter.y}H${meter.x}H300` : '';
       o += primaryPipe('wp-upper-supply', `M${ws.x} ${ws.y}V136Q350 128 342 128${wwLadung}Q300 128 300 120${verticalBridge}${meterDetour}V${y_ro + 8}Q300 ${y_ro} 292 ${y_ro}H${wst.x}${wst.y !== y_ro ? `V${wst.y}` : ''}`, CW, wpO, tO);
       const sj = HK ? model.junctions[model.connections['wp-lower-supply'].via[0]] : null;
       // The tees lie on these continuous paths; their explicit via references
       // record incidence without changing the legacy SVG paint order.
-      o += primaryPipe('wp-lower-supply', `M${wl.x} ${wl.y}${sj && sj.y !== wl.y ? `V${sj.y}` : ''}H270A8 8 0 0 0 254 ${sj ? sj.y : y_ru}H${wlt.x}${wlt.y !== (sj ? sj.y : y_ru) ? `V${wlt.y}` : ''}`, CW, wpU, tU);
+      const lowerBridge = FM && SPLIT ? 'H268A6 6 0 0 0 256' : 'H270A8 8 0 0 0 254';
+      o += primaryPipe('wp-lower-supply', `M${wl.x} ${wl.y}${sj && sj.y !== wl.y ? `V${sj.y}` : ''}${lowerBridge} ${sj ? sj.y : y_ru}H${wlt.x}${wlt.y !== (sj ? sj.y : y_ru) ? `V${wlt.y}` : ''}`, CW, wpU, tU);
       if (QS) {
         const qon = wp_on || (W.quelle_pumpe ? ON(W.quelle_pumpe) : false);
         const ia = point(model.connections['source-in'].from), ib = point(model.connections['source-in'].to);
@@ -1361,7 +1372,10 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
 
     /* Wärmemengenzähler */
-    if (WP && W.wmz) o += openComponent('wp-meter') + `<g${more(W.wmz)}>${zaehlerSym(300, 100)}<text x="292" y="103" font-size="8" class="we wt wv">${r1(NUM(W.wmz))} ${esc(U(W.wmz, 'kWh'))}</text></g>` + closeComponent('wp-meter');
+    if (WP && W.wmz) {
+      const meterLabelY = FM && SPLIT ? Math.min(103, point(model.connections['fm-return'].to).y - 15) : 103;
+      o += openComponent('wp-meter') + `<g${more(W.wmz)}>${zaehlerSym(300, 100)}<text x="292" y="${meterLabelY}" font-size="8" class="we wt wv">${r1(NUM(W.wmz))} ${esc(U(W.wmz, 'kWh'))}</text></g>` + closeComponent('wp-meter');
+    }
     if (K && K.wmz) o += openComponent('additional-meter') + `<g${more(K.wmz)}>${zaehlerSym(-30, y_ru)}<text x="-30" y="${y_ru - 11}" font-size="8" class="wc wt wv">${r1(NUM(K.wmz))} ${esc(U(K.wmz, 'kWh'))}</text></g>` + closeComponent('additional-meter');
 
     /* Legende */

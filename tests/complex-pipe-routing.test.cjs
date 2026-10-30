@@ -25,7 +25,7 @@ test('moved FM and Luft-WP share one batch across all tank types', () => {
     const c = fixture(type); c._model.components.fm.origin.x += type === 'getrennt' ? 60 : 30; c._model.components.fm.origin.y += 15;
     const results = routed(c); assertLayers(c._render(), results);
     assert.deepEqual(plain(route(c._model, [...ids].reverse())), plain(results));
-    assert.ok(Object.values(results).some(r => /A4 4/.test(r.path)), `${type}: expected a real bridge`);
+    assert.ok(Object.values(results).some(r => /A6 6/.test(r.path)), `${type}: expected a real bridge`);
   }
 });
 test('each crossing bridge is painted after every layer of the crossing pipe', () => {

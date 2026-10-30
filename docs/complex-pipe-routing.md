@@ -4,12 +4,7 @@
 
 ### Nächster abgegrenzter Schritt
 
-Dieser PR baut auf [PR #4](https://github.com/mariofritzer/warmwasser-schema-card/pull/4)
-bei `2c8a72e5e1971208965d54c77513d3bee191ecf5` auf. #4 und der darunterliegende
-[Komponentenmodell-PR #3](https://github.com/mariofritzer/warmwasser-schema-card/pull/3)
-sind zu Beginn dieser Arbeit noch offen. Der Vergleich gegen Upstream `main`
-enthält daher auch deren Änderungen. Nach dem Merge der Vorgänger wird der
-Branch auf den entsprechenden Upstream-Stand umgehängt.
+Die Vorgänger [PR #3](https://github.com/mariofritzer/warmwasser-schema-card/pull/3) und [PR #4](https://github.com/mariofritzer/warmwasser-schema-card/pull/4) sind gemergt.
 
 Ziel ist ein gemeinsamer Routing-Durchlauf für die sieben bereits modellierten
 äußeren Leitungen einer Anlage mit Wärmepumpe und Frischwassermodul:
@@ -40,7 +35,7 @@ hinzu; die bestehenden HK-Abzweige werden erst in einer späteren Stufe angebund
 Die Installation bleibt eine einzelne JavaScript-Datei ohne Laufzeitabhängigkeiten
 und ohne Build. Die Aktivierung bleibt auf interne Geometrieproben beschränkt;
 dieser PR führt weder ein öffentliches `layout` noch einen visuellen Editor ein.
-Kanonische Karten behalten ihre bisherigen SVG-Pfade und deren Darstellung.
+Kanonische Primärpfade für `getrennt` mit FM und WP ändern sich gezielt, um Kreuzungen von Ecken zu trennen.
 
 Die Freigabe umfasst zunächst Luft-WP mit FM für `trennblech`, `schicht` und
 `getrennt`. Heizkreise, WP-Quellenkreise, Zähler und weitere Zusatzoptionen bleiben
@@ -75,7 +70,7 @@ Brücke wird als vollständige Gruppe später gezeichnet, einschließlich Schatt
 Farbe, Glanz und Animation. Bei der gezeigten WP/FM-Anlage tragen dadurch beide
 WP-Vorläufe die Brücken über die jeweils gekreuzten Rückläufe. Das ist eine
 einheitliche Diagrammkonvention und keine Berechnung der räumlichen Rohrlage
-einer realen Anlage. Die festen kanonischen Zeichenrezepte bleiben erhalten.
+einer realen Anlage. Andere feste Zeichenrezepte bleiben erhalten und können andere Brückenradien verwenden.
 
 Die bestehende FM-Freigabe und deren Textgrenzen bleiben bestehen. Zusätzlich
 gilt für die WP: Typ `luft`, kein `wmz`, `sg_ready`, `quelle_ein` oder
@@ -124,43 +119,17 @@ am Rand möglich. Auch das ist vor einer öffentlichen Layout-Freigabe zu lösen
 Eine Prüfung in einer echten Home-Assistant-Installation
 bleibt zusätzlich zur lokalen Browserprüfung erforderlich.
 
-### Abschlussprüfung
+### Prüfung und verbleibender Umfang
 
-`node --check warmwasser-schema-card.js`, `git diff --check` und
-`node --test tests/*.test.cjs` sind erfolgreich: **527 Tests**, darunter alle
-459 unveränderten Golden-Szenarien gegen Upstream v3.0.1. Neue Tests prüfen echte
-Brücken, dieselben Pfade in allen Rohrlagen, obere/untere WP-Zone, Kühlung,
-Standby, Sensorinvarianz, beide getrennten Speicher, WP-/Ventilbewegung und
-ausdrückliche Fehler bei Teilbatches, blockierten Ports und Textüberläufen. Für
-jede berechnete Kreuzung wird zusätzlich geprüft, dass sämtliche Rohrlagen des
-Brückenbesitzers nach der vollständigen gekreuzten Rohrgruppe gezeichnet werden.
-Zusätzliche Fälle sichern den Vorrang aus zwei `supply`-Anschlussrollen,
-neutrale Behandlung fehlender oder widersprüchlicher Rollen und den ID-Gleichstand
-unabhängig von Eingabereihenfolge und Kühlbetrieb ab.
+Tests prüfen die Speichertrennung 35–70 mit und ohne WP-Zähler und Heizstab sowie mitbewegte Trinkwasserenden. Ausgewählte Golden-Ausgaben ändern sich durch den kanonischen Fix. Der vollständige Lauf `node --test tests/*.test.cjs` besteht mit 535 Tests.
 
-Ältere Geometrieproben für Ventil und Pufferspeicher verwenden isolierte
-Konfigurationen ohne FM, wenn ihr voller Anlagenaufbau außerhalb der neuen
-Routing-Freigabe liegt. Ihre ursprünglichen Endpunktprüfungen und sämtliche
-Golden-Werte bleiben erhalten.
-
-Der Browser-Harness unter `tests/helpers/routing-harness.html` zeigt kanonische
-und intern verschobene Anlagen mit optionaler Luft-WP. Alle drei freigegebenen
-Speicherformen, identische Pfade in Rohrlagen/Animation sowie der sichtbare
-`blocked-port`-Fehler wurden lokal geprüft. Der GPT-6-Astra-Review hat keine
-offenen blockierenden Befunde im beschriebenen Scope. Ein Vergleich mit dem
-Vorgänger bei kanonischer Geometrie ist durch die unveränderten Goldens gesichert;
-die Seite im Harness vergleicht kanonische mit verschobener Geometrie derselben
-neuen Version, nicht zwei Versionen bei identischer Anordnung.
+Trinkwasserenden, Pfeile und Beschriftungen sowie modellierte Zirkulationspumpe und Abzweige folgen dem FM. Aktives Routing einer verschobenen Anlage mit Zirkulation bleibt `unsupported`. Quellen- und Heizkreisenden sind nicht für Geräteverschiebung freigegeben. Der Compiler und die betroffenen festen Primärbrücken bei `getrennt` + FM + WP verwenden Radius 6. Andere feste Brücken, etwa bei Quelle und Heizkreisen, behalten andere Radien. Die Abstands- und Kollisionsregeln sind nicht global für alle festen Pfade umgesetzt.
 
 ## English
 
 ### Next bounded step
 
-This PR builds on [PR #4](https://github.com/mariofritzer/warmwasser-schema-card/pull/4)
-at `2c8a72e5e1971208965d54c77513d3bee191ecf5`. Both #4 and its underlying
-[component-model PR #3](https://github.com/mariofritzer/warmwasser-schema-card/pull/3)
-remain open at the start of this work. The upstream `main` diff therefore includes
-their changes. Rebase onto upstream after the preceding PRs merge.
+The predecessors [PR #3](https://github.com/mariofritzer/warmwasser-schema-card/pull/3) and [PR #4](https://github.com/mariofritzer/warmwasser-schema-card/pull/4) have merged.
 
 The target is one shared routing pass for the seven existing external connections
 of a heat-pump/FWM installation:
@@ -189,8 +158,7 @@ adds no external tees; existing heating-circuit junctions follow separately.
 
 Installation remains one JavaScript file without runtime dependencies or a build.
 Activation remains restricted to internal geometry probes; this PR adds neither
-a public `layout` option nor a visual editor. Canonical cards retain their
-existing SVG paths and appearance.
+a public `layout` option nor a visual editor. Fixed primary paths for `getrennt` with an FWM and heat pump change to separate crossings from bends.
 
 Initial scope covers air-source heat pumps with an FWM and `trennblech`, `schicht`
 or `getrennt` tanks. Heating circuits, heat-pump source loops, meters and further
@@ -224,7 +192,7 @@ later as a complete group, including its shadow, colour, highlights and animatio
 Both heat-pump supply pipes therefore own their bridges over the crossing returns
 in the shown heat-pump/FWM example. This is a consistent diagram convention, not
 a calculation of actual three-dimensional pipe placement. Fixed canonical drawing
-recipes remain unchanged.
+recipes remain in place and may use other bridge radii.
 
 Existing FWM eligibility and text limits remain. Additional heat-pump requirements:
 type `luft`, no `wmz`, `sg_ready`, `quelle_ein` or `quelle_aus`; `name_wp` up to
@@ -269,29 +237,8 @@ component geometry rather than the full pipe envelope; other internal offsets ma
 slightly clip pipes at the edge. This must also be addressed before public layout
 support.
 
-### Final verification
+### Verification and remaining scope
 
-`node --check warmwasser-schema-card.js`, `git diff --check` and
-`node --test tests/*.test.cjs` pass: **527 tests**, including all 459 unchanged
-upstream v3.0.1 golden scenarios. New tests cover real bridges, identical paths
-across pipe layers, upper/lower heat-pump zones, cooling, standby, sensor
-invariance, both separate tanks, heat-pump/valve movement, and explicit failures
-for partial batches, blocked ports and label overflow. Every computed crossing
-also verifies that all layers of the bridge owner are painted after the complete
-crossed pipe group.
-Further cases verify priority from two `supply` endpoint roles, neutral handling
-of missing or conflicting roles, and ID tie-breaking independently of input
-order and cooling state.
+Tests cover tank separations 35–70 with and without a heat meter and immersion heater, and moving domestic-water ends. Selected golden outputs change with the canonical fix. The complete run `node --test tests/*.test.cjs` passes with 535 tests.
 
-Earlier valve and buffer-tank geometry probes use isolated configurations without
-an FWM when their full system is outside routing eligibility. Their original
-endpoint assertions and all golden values remain intact.
-
-The browser harness at `tests/helpers/routing-harness.html` shows canonical and
-internally moved configurations with an optional air-source heat pump. Local
-browser checks covered all three eligible tank types, identical paths across
-pipe layers/animation, and a visible `blocked-port` error. GPT-6-Astra found no
-outstanding blocking issues within this scope. Unchanged goldens compare the
-preceding version at canonical geometry; the harness page compares canonical
-and moved geometry in the same new version, rather than two versions at the
-same positions.
+Domestic-water ends, arrows and labels, and modeled circulation tees and pump follow the FWM. Active routing of a moved installation with circulation remains `unsupported`. Source and heating-circuit endpoints are not approved for equipment movement. The compiler and affected fixed primary bridges in `getrennt` + FWM + heat-pump configurations use radius 6. Other fixed bridges, including source and heating circuits, retain other radii. Clearance and collision rules are not globally implemented for every fixed path.
