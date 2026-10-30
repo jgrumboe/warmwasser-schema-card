@@ -386,7 +386,27 @@ function diagramModel(c) {
       if (junctions[id].medium !== resolve(edge.from).medium) throw new Error(`Medium mismatch: ${edge.id} via ${id}`);
     }
   }
-  return { components, junctions, connections, geometry: { yt, ro, bo, ru, bu, ym, heaterY } };
+  for (const edge of Object.values(connections)) {
+    edge.routingPolicy = /(?:pump-through)/.test(edge.id) ? 'pump-through'
+      : /(?:coil|exchanger|ground-loop)/.test(edge.id) ? 'internal-coil'
+      : /^manifold-/.test(edge.id) ? 'manifold-rail'
+      : ['fm-supply', 'fm-return'].includes(edge.id) ? 'external' : 'fixed';
+  }
+  // Routing areas are local painted exclusion zones, separate from reference bounds.
+  if (fm) {
+    for (const id of new Set([hot.id, buffer.id, 'fm'])) {
+      const b = components[id].bounds;
+      components[id].routingAreas = [{ ...b }];
+      for (const port of Object.values(components[id].ports)) if (port.stub)
+        components[id].routingAreas.push({ ...port.stub });
+    }
+    for (const id of Object.keys(components).filter(id => id.startsWith('sensor-'))) {
+      components[id].routingAreas = [{ x:-80, y:0, width:240, height:30 }];
+    }
+  }
+  return { components, junctions, connections, geometry: { yt, ro, bo, ru, bu, ym, heaterY },
+    routingScope: { fm: fm && !wp && !hk && !c.solar && !c.kamin && !c.zirkulationspumpe && !c.trinkwasser && !c.heizstab_oben && !c.heizstab_unten && !c.legionellen && String(c.hersteller ?? '').length <= 8 && String(c.name_fm ?? '').length <= 3 && c.fuehler.every(f => String(f.name ?? '').length <= 20) && String(c.text_tw_kalt ?? '').length <= 20 && String(c.text_tw_warm ?? '').length <= 20 } };
+
 }
 function diagramPort(model, reference) {
   if (model.junctions[reference]) return model.junctions[reference];
@@ -399,6 +419,335 @@ function diagramStub(model, reference) {
   if (!port || !port.stub) throw new Error(`Unknown stub: ${reference}`);
   const r = port.stub;
   return [component.origin.x + r.x, component.origin.y + r.y, r.width, r.height];
+}
+
+// clearance is the TOTAL obstacle inflation radius, including any stroke allowance.
+// Ports may cross their own owner's inflated obstacles only on their escape segment.
+function routeOrthogonalConnection(request) {
+  const fail = (code, reason) => ({ status: 'failed', code, reason });
+  const finite = n => typeof n === 'number' && Number.isFinite(n);
+  const vectors = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] };
+  const dirs = ['left', 'right', 'top', 'bottom'];
+  const opposite = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
+  const pointValid = p => p && finite(p.x) && finite(p.y);
+  if (!request || !pointValid(request.from) || !pointValid(request.to) ||
+      !Object.hasOwn(vectors, request.from.direction) || !Object.hasOwn(vectors, request.to.direction) ||
+      (request.vias !== undefined && !Array.isArray(request.vias)) ||
+      (request.obstacles !== undefined && !Array.isArray(request.obstacles))) {
+    return fail('invalid-input', 'Expected finite ports, cardinal directions, vias and obstacles.');
+  }
+  const clearance = request.clearance === undefined ? 6 : request.clearance;
+  const lead = request.lead === undefined ? 16 : request.lead;
+  if (!finite(clearance) || clearance < 0 || !finite(lead) || lead <= 0 ||
+      (request.vias || []).some(p => !pointValid(p)) ||
+      (request.obstacles || []).some(b => !b || !pointValid(b) || !finite(b.width) || !finite(b.height) || b.width < 0 || b.height < 0)) {
+    return fail('invalid-input', 'Clearance, lead, vias or obstacle dimensions are invalid.');
+  }
+  const boxes = (request.obstacles || []).map(b => ({
+    owner: b.owner, left: b.x - clearance, right: b.x + b.width + clearance,
+    top: b.y - clearance, bottom: b.y + b.height + clearance
+  }));
+  if (boxes.some(b => ![b.left, b.right, b.top, b.bottom].every(finite))) {
+    return fail('invalid-input', 'Inflated obstacle coordinates must be finite.');
+  }
+  // Closed obstacle boundaries prevent a centerline from grazing the inflated body.
+  const inside = (p, b) => p.x >= b.left && p.x <= b.right && p.y >= b.top && p.y <= b.bottom;
+  const intersects = (a, c, b) => a.y === c.y
+    ? a.y >= b.top && a.y <= b.bottom && Math.min(a.x, c.x) <= b.right && Math.max(a.x, c.x) >= b.left
+    : a.x === c.x && a.x >= b.left && a.x <= b.right && Math.min(a.y, c.y) <= b.bottom && Math.max(a.y, c.y) >= b.top;
+  const sameOwner = (port, box) => port.owner != null && box.owner === port.owner;
+  // One unit of numerical space beyond each padded boundary. No iterative probing.
+  const margin = 1;
+  function escape(port) {
+    const [dx, dy] = vectors[port.direction];
+    let length = lead;
+    for (const b of boxes) {
+      if (!sameOwner(port, b)) continue;
+      if (dx && port.y >= b.top && port.y <= b.bottom) {
+        const far = dx > 0 ? b.right - port.x : port.x - b.left;
+        const near = dx > 0 ? b.left - port.x : port.x - b.right;
+        if (far >= 0 && near <= length) length = Math.max(length, far + margin);
+      } else if (dy && port.x >= b.left && port.x <= b.right) {
+        const far = dy > 0 ? b.bottom - port.y : port.y - b.top;
+        const near = dy > 0 ? b.top - port.y : port.y - b.bottom;
+        if (far >= 0 && near <= length) length = Math.max(length, far + margin);
+      }
+    }
+    const end = { x: port.x + dx * length, y: port.y + dy * length };
+    if (!pointValid(end) || boxes.some(b => !sameOwner(port, b) && intersects(port, end, b)) ||
+        boxes.some(b => inside(end, b))) return null;
+    return end;
+  }
+  const start = escape(request.from), end = escape(request.to);
+  if (!start || !end) return fail('blocked-port', 'A port escape intersects an incompatible obstacle or cannot clear its owner.');
+  const vias = request.vias || [];
+  if (vias.some(p => boxes.some(b => inside(p, b)))) return fail('no-route', 'A required via lies inside an inflated obstacle.');
+  const anchors = [start, ...vias, end];
+  const xs = new Set(), ys = new Set();
+  for (const p of anchors) { xs.add(p.x); ys.add(p.y); }
+  for (const b of boxes) {
+    xs.add(b.left - margin); xs.add(b.right + margin);
+    ys.add(b.top - margin); ys.add(b.bottom + margin);
+  }
+  const X = [...xs].sort((a, b) => a - b), Y = [...ys].sort((a, b) => a - b);
+  if (![...X, ...Y].every(finite)) return fail('invalid-input', 'Search coordinates must be finite.');
+  const target = anchors.map(p => [X.indexOf(p.x), Y.indexOf(p.y)]);
+  const advance = (x, y, stage) => {
+    while (stage < target.length && target[stage][0] === x && target[stage][1] === y) stage++;
+    return stage;
+  };
+  const key = (x, y, direction, stage) => `${x},${y},${direction},${stage}`;
+  const heap = [];
+  function push(item) {
+    let i = heap.length; heap.push(item);
+    while (i) { const p = (i - 1) >> 1; if (heap[p].cost <= item.cost) break; heap[i] = heap[p]; i = p; }
+    heap[i] = item;
+  }
+  function pop() {
+    const first = heap[0], last = heap.pop();
+    if (heap.length) {
+      let i = 0;
+      while (2 * i + 1 < heap.length) {
+        let c = 2 * i + 1;
+        if (c + 1 < heap.length && heap[c + 1].cost < heap[c].cost) c++;
+        if (heap[c].cost >= last.cost) break;
+        heap[i] = heap[c]; i = c;
+      }
+      heap[i] = last;
+    }
+    return first;
+  }
+  const sx = target[0][0], sy = target[0][1], initialStage = advance(sx, sy, 1);
+  const initialKey = key(sx, sy, request.from.direction, initialStage);
+  const distance = new Map([[initialKey, 0]]), previous = new Map();
+  push({ x: sx, y: sy, direction: request.from.direction, stage: initialStage, cost: 0, key: initialKey });
+  let finish = null;
+  while (heap.length) {
+    const cur = pop();
+    if (distance.get(cur.key) !== cur.cost) continue;
+    if (cur.stage === target.length && cur.x === target[target.length - 1][0] && cur.y === target[target.length - 1][1] && cur.direction !== request.to.direction) { finish = cur.key; break; }
+    for (const direction of dirs) {
+      if (direction === opposite[cur.direction]) continue;
+      const [dx, dy] = vectors[direction], x = cur.x + dx, y = cur.y + dy;
+      if (x < 0 || x >= X.length || y < 0 || y >= Y.length) continue;
+      const a = { x: X[cur.x], y: Y[cur.y] }, b = { x: X[x], y: Y[y] };
+      if (boxes.some(box => intersects(a, b, box))) continue;
+      const stage = advance(x, y, cur.stage), nextKey = key(x, y, direction, stage);
+      const cost = cur.cost + Math.abs(a.x - b.x) + Math.abs(a.y - b.y) + (direction === cur.direction ? 0 : 20);
+      if (cost >= (distance.get(nextKey) ?? Infinity)) continue;
+      distance.set(nextKey, cost); previous.set(nextKey, cur.key);
+      push({ x, y, direction, stage, cost, key: nextKey });
+    }
+  }
+  if (!finish) return fail('no-route', 'No obstacle-free orthogonal route satisfies the ports and required vias.');
+  const raw = [];
+  for (let k = finish; k; k = previous.get(k)) {
+    const [x, y] = k.split(',').map(Number);
+    raw.push({ x: X[x], y: Y[y] });
+  }
+  raw.reverse();
+  // Preserve all mandatory via coordinates, even when collinear.
+  const viaAt = p => vias.some(v => v.x === p.x && v.y === p.y);
+  const simplified = raw.filter((p, i) => i === 0 || i === raw.length - 1 || viaAt(p) ||
+    !((raw[i - 1].x === p.x && p.x === raw[i + 1].x) || (raw[i - 1].y === p.y && p.y === raw[i + 1].y)));
+  const points = [{ x: request.from.x, y: request.from.y }, ...simplified, { x: request.to.x, y: request.to.y }];
+  return { status: 'routed', points: points.filter((p, i) => !i || p.x !== points[i - 1].x || p.y !== points[i - 1].y) };
+}
+
+/* Compiles a batch of already validated orthogonal centerlines. The router must
+ * validate straight segments including halfWidth and owner escape exceptions.
+ * This compiler additionally validates conservative corner/bridge envelopes. */
+function compilePipeRoutes(routes, options = {}) {
+  const radius = options.radius ?? 8, bridgeRadius = options.bridgeRadius ?? 4, halfWidth = options.halfWidth ?? 5;
+  const obstacles = options.obstacles ?? [];
+  const fail = (code, ids, reason) => ({status:'failed', code, connectionIds:[...new Set(ids)].sort(), reason});
+  if (![radius, bridgeRadius, halfWidth].every(n => Number.isFinite(n) && n >= 0) || bridgeRadius === 0 || !Array.isArray(routes)) return fail('invalid-input', [], 'Invalid compiler options or routes');
+  const rs = routes.map(r => ({...r})).sort((a,b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const eq = (a,b) => a.x === b.x && a.y === b.y;
+  const dist = (a,b) => Math.abs(a.x-b.x)+Math.abs(a.y-b.y);
+  const inRange = (v,a,b) => v >= Math.min(a,b) && v <= Math.max(a,b);
+  const nodeAt = (r,p) => (r.nodes || []).filter(n => n.ref != null && eq(n,p));
+  const junction = (a,b,p) => nodeAt(a,p).some(n => nodeAt(b,p).some(m => m.ref === n.ref));
+  const pointSegmentDistance = (p,a,b) => {
+    const x=Math.max(Math.min(a.x,b.x),Math.min(Math.max(a.x,b.x),p.x));
+    const y=Math.max(Math.min(a.y,b.y),Math.min(Math.max(a.y,b.y),p.y));
+    return Math.hypot(p.x-x,p.y-y);
+  };
+  const segmentDistance = (a,b,c,d) => Math.min(pointSegmentDistance(a,c,d),pointSegmentDistance(b,c,d),pointSegmentDistance(c,a,b),pointSegmentDistance(d,a,b));
+  const seen = new Set();
+  for (const r of rs) {
+    if (typeof r.id !== 'string' || seen.has(r.id) || !Array.isArray(r.points) || r.points.length < 2 || !Array.isArray(r.nodes) || r.points.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y))) return fail('invalid-input', [r.id].filter(x => typeof x === 'string'), 'Invalid route or duplicate ID');
+    seen.add(r.id);
+    for (let i=0;i<r.points.length-1;i++) { const a=r.points[i],b=r.points[i+1]; if (eq(a,b) || (a.x !== b.x && a.y !== b.y)) return fail('invalid-centerline',[r.id],'Segments must be nonzero and orthogonal'); }
+    r._compilerRadii = r.points.map((p,i) => {
+      if (!i || i === r.points.length-1 || nodeAt(r,p).length) return 0;
+      const a=r.points[i-1], b=r.points[i+1];
+      if ((a.x === p.x) === (p.x === b.x)) return 0;
+      return Math.min(radius,dist(a,p)/2,dist(p,b)/2);
+    });
+    r._compilerCrossings = [];
+  }
+  for (const r of rs) for (let i=0;i<r.points.length-1;i++) for (let j=i+1;j<r.points.length-1;j++) {
+    const a=r.points[i], b=r.points[i+1], c=r.points[j], d=r.points[j+1], ah=a.y===b.y, ch=c.y===d.y;
+    let contact=false, overlap=false, point;
+    if (ah===ch) {
+      if (ah ? a.y===c.y : a.x===c.x) {
+        const lo=Math.max(Math.min(ah?a.x:a.y,ah?b.x:b.y),Math.min(ah?c.x:c.y,ah?d.x:d.y));
+        const hi=Math.min(Math.max(ah?a.x:a.y,ah?b.x:b.y),Math.max(ah?c.x:c.y,ah?d.x:d.y));
+        contact=lo<=hi; overlap=lo<hi;
+        if(contact) point=ah?{x:lo,y:a.y}:{x:a.x,y:lo};
+      }
+    } else {
+      point=ah?{x:c.x,y:a.y}:{x:a.x,y:c.y};
+      contact=inRange(point.x,a.x,b.x)&&inRange(point.y,a.y,b.y)&&inRange(point.x,c.x,d.x)&&inRange(point.y,c.y,d.y);
+    }
+    if(contact && (j!==i+1 || overlap || !eq(point,b))) return fail('self-contact',[r.id],'Route intersects or overlaps itself');
+  }
+  // All pairs are examined after routing, so bridge ownership is stable by ID.
+  for (let i=0;i<rs.length;i++) for (let j=i+1;j<rs.length;j++) {
+    const a=rs[i], b=rs[j];
+    for(let ai=0;ai<a.points.length-1;ai++) for(let bi=0;bi<b.points.length-1;bi++) {
+      const p=a.points[ai],q=a.points[ai+1],u=b.points[bi],v=b.points[bi+1], ah=p.y===q.y,bh=u.y===v.y;
+      let x;
+      if (ah===bh) {
+        if ((ah ? p.y!==u.y : p.x!==u.x)) {
+          const separation=Math.abs(ah?p.y-u.y:p.x-u.x);
+          const lo=Math.max(Math.min(ah?p.x:p.y,ah?q.x:q.y),Math.min(ah?u.x:u.y,ah?v.x:v.y));
+          const hi=Math.min(Math.max(ah?p.x:p.y,ah?q.x:q.y),Math.max(ah?u.x:u.y,ah?v.x:v.y));
+          if (segmentDistance(p,q,u,v)<2*halfWidth) return fail('pipe-clearance',[a.id,b.id],'Pipe envelopes overlap');
+          continue;
+        }
+        const lo=Math.max(Math.min(ah?p.x:p.y,ah?q.x:q.y),Math.min(ah?u.x:u.y,ah?v.x:v.y));
+        const hi=Math.min(Math.max(ah?p.x:p.y,ah?q.x:q.y),Math.max(ah?u.x:u.y,ah?v.x:v.y));
+        if (lo>hi) { if (segmentDistance(p,q,u,v)<2*halfWidth) return fail('pipe-clearance',[a.id,b.id],'Pipe envelopes overlap'); continue; }
+        if (lo<hi) return fail('collinear-overlap',[a.id,b.id],'Collinear segments overlap');
+        x=ah?{x:lo,y:p.y}:{x:p.x,y:lo};
+      } else {
+        x=ah?{x:u.x,y:p.y}:{x:p.x,y:u.y};
+        if (!inRange(x.x,p.x,q.x)||!inRange(x.y,p.y,q.y)||!inRange(x.x,u.x,v.x)||!inRange(x.y,u.y,v.y)) { if (segmentDistance(p,q,u,v)<2*halfWidth) return fail('pipe-clearance',[a.id,b.id],'Pipe envelopes overlap'); continue; }
+      }
+      if (junction(a,b,x)) continue;
+      if (ah===bh || eq(x,p)||eq(x,q)||eq(x,u)||eq(x,v)) return fail('unnamed-contact',[a.id,b.id],'Contact is not a named shared junction');
+      const clearance=bridgeRadius+halfWidth;
+      if (dist(x,p)<=a._compilerRadii[ai]+clearance || dist(x,q)<=a._compilerRadii[ai+1]+clearance || dist(x,u)<=b._compilerRadii[bi]+clearance || dist(x,v)<=b._compilerRadii[bi+1]+clearance) return fail('crossing-near-corner',[a.id,b.id],'Crossing too close to an endpoint or corner');
+      // Higher ID takes the bridge; lower ID remains straight.
+      b._compilerCrossings.push({point:x, segment:bi, otherId:a.id, otherSegment:ai, bridge:true});
+      a._compilerCrossings.push({point:x, segment:ai, otherId:b.id, otherSegment:bi, bridge:false});
+    }
+  }
+  const intersectsObstacle = (box) => obstacles.some(o => Number.isFinite(o.x)&&Number.isFinite(o.y)&&Number.isFinite(o.width)&&Number.isFinite(o.height) && box.x1 <= o.x+o.width && box.x2 >= o.x && box.y1 <= o.y+o.height && box.y2 >= o.y);
+  const bbox = pts => ({x1:Math.min(...pts.map(p=>p.x))-halfWidth,y1:Math.min(...pts.map(p=>p.y))-halfWidth,x2:Math.max(...pts.map(p=>p.x))+halfWidth,y2:Math.max(...pts.map(p=>p.y))+halfWidth});
+  const connectedLegs = (route, indices) => {
+    const chosen=new Set(indices), ps=route.points;
+    const sameDirection = (i,j) => Math.sign(ps[i+1].x-ps[i].x)===Math.sign(ps[j+1].x-ps[j].x) && Math.sign(ps[i+1].y-ps[i].y)===Math.sign(ps[j+1].y-ps[j].y);
+    for (const start of indices) {
+      let i=start; while(i>0 && sameDirection(i-1,i)) chosen.add(--i);
+      i=start; while(i<ps.length-2 && sameDirection(i,i+1)) chosen.add(++i);
+    }
+    // A short S-shaped continuation remains one stroke: the leg beyond
+    // the next bend must continue in the same direction, never reverse.
+    if (indices.length===2) {
+      let left=Math.min(...chosen), right=Math.max(...chosen);
+      if (left>0 && sameDirection(left-1,right)) {
+        chosen.add(--left); while(left>0 && sameDirection(left-1,left)) chosen.add(--left);
+      }
+      if (right<ps.length-2 && sameDirection(right+1,Math.min(...indices))) {
+        chosen.add(++right); while(right<ps.length-2 && sameDirection(right,right+1)) chosen.add(++right);
+      }
+    }
+    return chosen;
+  };
+  const curvePipeConflict = (box, route, bridge, ownSegments) => {
+    const allowedOwn=connectedLegs(route,ownSegments);
+    for (const other of rs) {
+      for (let i=0;i<other.points.length-1;i++) {
+        const a=other.points[i], b=other.points[i+1];
+        // The bridge deliberately crosses this one segment. Other segments,
+        // even from the same route, still have to clear its envelope.
+        if (other.id===route.id && allowedOwn.has(i)) continue;
+        if (bridge && bridge.otherId===other.id && bridge.otherSegment===i) continue;
+        const segment=bbox([a,b]);
+        if (box.x1<=segment.x2 && box.x2>=segment.x1 && box.y1<=segment.y2 && box.y2>=segment.y1) return other.id;
+      }
+    }
+    return null;
+  };
+  const result={};
+  for (const r of rs) {
+    let d=`M${r.points[0].x} ${r.points[0].y}`;
+    for(let i=0;i<r.points.length-1;i++) {
+      const a=r.points[i], b=r.points[i+1], dx=Math.sign(b.x-a.x),dy=Math.sign(b.y-a.y), endR=r._compilerRadii[i+1];
+      const crossings=r._compilerCrossings.filter(c=>c.segment===i && c.bridge).sort((c,e)=>dist(a,c.point)-dist(a,e.point));
+      for(let k=0;k<crossings.length;k++) {
+        const c=crossings[k], p=c.point, br=bridgeRadius;
+        if (k && dist(p,crossings[k-1].point)<=2*(br+halfWidth)) return fail('crossings-too-close',[r.id,c.otherId,crossings[k-1].otherId],'Bridge envelopes overlap');
+        const before={x:p.x-dx*br,y:p.y-dy*br}, after={x:p.x+dx*br,y:p.y+dy*br};
+        // Full circle envelope is conservative for either SVG arc sweep.
+        const bridgeBox=bbox([{x:p.x-br,y:p.y-br},{x:p.x+br,y:p.y+br}]);
+        if (intersectsObstacle(bridgeBox)) return fail('curve-obstacle',[r.id],'Bridge envelope intersects an obstacle');
+        const bridgeConflict=curvePipeConflict(bridgeBox,r,c,[i]);
+        if (bridgeConflict) return fail('curve-pipe-clearance',[r.id,bridgeConflict],'Bridge envelope intersects another pipe');
+        d+=`L${before.x} ${before.y}A${br} ${br} 0 0 1 ${after.x} ${after.y}`;
+      }
+      const before={x:b.x-dx*endR,y:b.y-dy*endR}; d+=`L${before.x} ${before.y}`;
+      if(endR) {
+        const next=r.points[i+2], after={x:b.x+Math.sign(next.x-b.x)*endR,y:b.y+Math.sign(next.y-b.y)*endR};
+        const cornerBox=bbox([before,b,after]);
+        if(intersectsObstacle(cornerBox)) return fail('curve-obstacle',[r.id],'Corner envelope intersects an obstacle');
+        const cornerConflict=curvePipeConflict(cornerBox,r,null,[i,i+1]);
+        if(cornerConflict) return fail('curve-pipe-clearance',[r.id,cornerConflict],'Corner envelope intersects another pipe');
+        d+=`Q${b.x} ${b.y} ${after.x} ${after.y}`;
+      }
+    }
+    result[r.id]={points:r.points.map(p=>({x:p.x,y:p.y})),path:d,crossings:r._compilerCrossings.map(c=>({point:c.point,otherId:c.otherId,bridge:c.bridge}))};
+  }
+  return {status:'routed',routes:result};
+}
+
+// Resolve model references without mutating geometry or confusing bounds with obstacles.
+function routeDiagramConnections(model, ids, options = {}) {
+  const result = {}, candidates = [];
+  const resolve = ref => {
+    const j = model.junctions[ref];
+    if (j) return { x: j.x, y: j.y, medium: j.medium, ref };
+    const dot = ref.lastIndexOf('.'), owner = ref.slice(0, dot), c = model.components[owner], p = c && c.ports[ref.slice(dot + 1)];
+    return p && { x: c.origin.x + p.x, y: c.origin.y + p.y, direction: p.direction, medium: p.medium, owner, ref };
+  };
+  const obstacles = [];
+  for (const [id, c] of Object.entries(model.components)) for (const area of c.routingAreas || [])
+    obstacles.push({ id, owner: id, x: c.origin.x + area.x, y: c.origin.y + area.y, width: area.width, height: area.height });
+  if (model.routingScope) {
+    // Domestic paths are fixed V-then-H polylines, with their full painted width.
+    for (const id of ['domestic-cold', 'domestic-hot']) {
+      const edge = model.connections[id]; if (!edge) continue;
+      const a = resolve(edge.from), b = resolve(edge.to); if (!a || !b) continue;
+      obstacles.push({ id, x: a.x - 5, y: Math.min(a.y,b.y) - 5, width: 10, height: Math.abs(a.y-b.y) + 10 });
+      if (a.x !== b.x) obstacles.push({ id, x: Math.min(a.x,b.x) - 5, y: b.y - 5, width: Math.abs(a.x-b.x) + 10, height: 10 });
+    }
+    const boundary = model.components['domestic-boundary'];
+    if (boundary) obstacles.push({ id:'domestic-labels', x: boundary.origin.x - 120, y: boundary.origin.y - 8, width: 350, height: 22 });
+    if (Object.keys(model.components).some(id => id.startsWith('sensor-'))) obstacles.push({ id:'legend', x: 370, y: 110, width: 90, height: 28 });
+  }
+  for (const id of ids) {
+    const edge = model.connections[id];
+    if (!edge) { result[id] = { status:'failed', code:'unknown-reference' }; continue; }
+    const refs = [edge.from, ...(edge.via || []), edge.to], resolved = refs.map(resolve);
+    if (resolved.some(p => !p)) { result[id] = { status:'failed', code:'unknown-reference' }; continue; }
+    if (resolved.some(p => p.medium !== resolved[0].medium)) { result[id] = { status:'failed', code:'medium-mismatch' }; continue; }
+    if (edge.routingPolicy !== 'external') { result[id] = { status:'unsupported', reason:'connection-policy' }; continue; }
+    if (!resolved[0].direction || !resolved.at(-1).direction) { result[id] = { status:'unsupported', reason:'direction-required' }; continue; }
+    if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).length) { result[id] = { status:'failed', code:'invalid-options' }; continue; }
+    if (model.routingScope && !model.routingScope.fm) { result[id] = { status:'unsupported', reason:'unsupported-configuration' }; continue; }
+    const routed = routeOrthogonalConnection({ from: resolved[0], to: resolved.at(-1), vias: resolved.slice(1,-1).map(p => ({ id:p.ref, x:p.x, y:p.y })), obstacles, clearance:13, lead:16 });
+    if (routed.status !== 'routed') { result[id] = routed; continue; }
+    candidates.push({ id, points:routed.points, nodes:resolved.map(p => ({ ref:p.ref, x:p.x, y:p.y })) });
+  }
+  if (candidates.length) {
+    const compiled = compilePipeRoutes(candidates, { radius:8, bridgeRadius:4, halfWidth:5, obstacles });
+    if (compiled.status === 'routed') for (const [id, route] of Object.entries(compiled.routes)) result[id] = { status:'routed', ...route };
+    else for (const c of candidates) result[c.id] = { status:'failed', code:compiled.code, reason:compiled.reason };
+  }
+  return result;
 }
 
 class WarmwasserSchemaCard extends HTMLElement {
@@ -734,14 +1083,20 @@ class WarmwasserSchemaCard extends HTMLElement {
     if (FM) {
       const fs = point(model.connections['fm-supply'].from), fe = point(model.connections['fm-supply'].to);
       const fr = point(model.connections['fm-return'].from), ft = point(model.connections['fm-return'].to);
-      o += rohr(`M${fs.x} ${fs.y}H${fe.x}${fe.y !== fs.y ? `V${fe.y}` : ''}`, F.warm, fm_on);
+      const moved = [tankId, 'fm'].some(id => { const b = model.components[id]; return b.origin.x !== b.baseOrigin.x || b.origin.y !== b.baseOrigin.y; });
+      const routes = moved ? routeDiagramConnections(model, ['fm-supply', 'fm-return']) : null;
+      if (routes) for (const [id, route] of Object.entries(routes)) if (route.status !== 'routed') {
+        const error = new Error(`FM routing ${route.status}: ${id}: ${route.code || route.reason}`);
+        error.code = route.code || route.reason; throw error;
+      }
+      o += rohr(routes ? routes['fm-supply'].path : `M${fs.x} ${fs.y}H${fe.x}${fe.y !== fs.y ? `V${fe.y}` : ''}`, F.warm, fm_on);
       // Separate tanks need the fresh-water return on the hot-water tank,
       // while shared tanks retain the bottom connection.
       const radius = Math.min(8, Math.max(0, (ft.y - fr.y) / 2));
       const fmRuecklauf = SPLIT
         ? `M${fr.x} ${fr.y}H${315 + radius}Q315 ${fr.y} 315 ${fr.y + radius}V${ft.y - radius}Q315 ${ft.y} ${315 - radius} ${ft.y}H${ft.x}`
         : `M${fr.x} ${fr.y}H458Q466 90 466 98V382Q466 390 458 390H${ft.x + 8}Q${ft.x} 390 ${ft.x} 382V${ft.y}`;
-      o += rohr(fmRuecklauf, F.kalt, fm_on);
+      o += rohr(routes ? routes['fm-return'].path : fmRuecklauf, F.kalt, fm_on);
     }
     if (WP) {
       const returnTee = HK ? model.junctions[model.connections['wp-lower-return'].via[0]] : null;

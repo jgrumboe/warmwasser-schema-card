@@ -186,6 +186,12 @@ See the [bilingual plan and decisions](docs/component-model-plan.md) for scope,
 alternatives, branch dependencies and follow-up work. Installation remains a
 single JavaScript file with no runtime dependencies or build step.
 
+The next routing step adds an internal orthogonal router, initially connected to
+the FWM supply/return for a limited set of internally moved components. Standard
+cards retain their existing paths. See [routing scope and geometry contracts](docs/pipe-routing.md)
+for supported cases, explicit failures and follow-up work; this adds no layout
+configuration or layout editor.
+
 Development checks (Node.js 22 or newer; no packages to install):
 
 ```sh

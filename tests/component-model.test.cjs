@@ -41,11 +41,11 @@ test('reconfiguration replaces topology and state changes do not', () => {
 });
 
 test('moving the FM moves its body, visible stub and pipe endpoint together', () => {
-  const x = card(); x._model.components.fm.origin.x += 10;
+  const x = card({ speicher: { typ: 'getrennt' }, fm: true }); x._model.components.fm.origin.x += 10;
   const svg = x._render();
   assert.ok(svg.includes('<rect x="350" y="14" width="110" height="90"'));
   assert.ok(svg.includes('<rect x="342" y="40" width="10" height="12"'));
-  assert.ok(svg.includes('M206 46H346'));
+  assert.ok(svg.includes('M206 46L'));
 });
 
 
@@ -129,7 +129,8 @@ test('active heating overlay reaches the tank after moving the return tee', () =
 });
 
 test('attached sensors, heaters and tank details follow their parent tank', () => {
-  const x = card({ ...config(), fuehler: [{ entity: 'sensor.top', name: 'Top', hoehe: 10 }], heizstab_oben: { leistung: 'sensor.heater' }, solar: { pumpe: 'switch.solar' } });
+  const cfg = { ...config(), fuehler: [{ entity: 'sensor.top', name: 'Top', hoehe: 10 }], heizstab_oben: { leistung: 'sensor.heater' }, solar: { pumpe: 'switch.solar' } }; delete cfg.fm;
+  const x = card(cfg);
   const m = x._model, sensor = m.components['sensor-0'], heater = m.components['upper-heater'];
   const sy = sensor.origin.y, hy = heater.origin.y;
   m.components['hot-tank'].origin.y += 12;
@@ -242,12 +243,11 @@ test('upper heater and WP port use config-only crowded geometry', () => {
 });
 
 test('moving the FM moves its separate-tank return port, stub and rounded route', () => {
-  const x = card(config('getrennt', 35));
+  const x = card({ speicher: { typ: 'getrennt', trennung: 35 }, fm: true });
   x._model.components.fm.origin.y += 5;
-  const y = x._model.geometry.bo - 14, radius = Math.min(8, Math.max(0, (y - 95) / 2));
   const svg = x._render();
   assert.ok(svg.includes('<rect x="332" y="89" width="10" height="12"'));
-  assert.ok(svg.includes(`M336 95H${315 + radius}Q315 95 315 ${95 + radius}V${y - radius}Q315 ${y} ${315 - radius} ${y}H206`));
+  assert.match(svg, /M336 95L[^"]*Q/);
 });
 
 test('circulation alone activates the same upper heater clearance', () => {

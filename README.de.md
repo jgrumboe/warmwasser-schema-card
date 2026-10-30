@@ -142,6 +142,13 @@ beschreibt Umfang, Alternativen, Branch-Abhängigkeiten und Folgeschritte. Für 
 Installation bleibt es bei einer JavaScript-Datei ohne Laufzeitabhängigkeiten
 und ohne Build-Schritt.
 
+Der nächste Routing-Schritt ergänzt einen internen orthogonalen Router, zunächst
+für FM-Vorlauf und -Rücklauf in begrenzten Konfigurationen mit intern verschobenen
+Komponenten. Standardkarten behalten ihre bisherigen Rohrwege. Der
+[Routing-Umfang und Geometrievertrag](docs/pipe-routing.md) beschreibt unterstützte
+Fälle, ausdrückliche Fehler und Folgeschritte. Es entstehen keine neue
+Layout-Konfiguration und kein Layout-Editor.
+
 Entwicklungsprüfungen (Node.js ab Version 22; keine Pakete zu installieren):
 
 ```sh
