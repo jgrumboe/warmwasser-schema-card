@@ -837,6 +837,18 @@ function tankState(c, S, y_t) {
   return { fl, stops, avg, col };
 }
 
+function renderTankSensors({ fl, col, more, openComponent, closeComponent }) {
+  const pille = (f) => {
+    const y = r1(f.y), cl = col(f.wert);
+    return `<g${more(f.entity)}><line x1="60" y1="${y}" x2="72" y2="${y}" stroke="${cl}" stroke-width="1.5"/>` +
+      `<rect x="2" y="${r1(y - 15)}" width="58" height="30" rx="10" style="fill:var(--secondary-background-color,#2a2d33)" stroke="${cl}" stroke-width="1.5"/>` +
+      `<text x="31" y="${r1(y - 3)}" font-size="8" class="wc ws" font-weight="600" letter-spacing=".8">${esc(f.name)}</text>` +
+      `<text x="31" y="${r1(y + 10)}" font-size="12" class="wc wt wv">${fmt(f.wert)}</text>` +
+      `<circle cx="72" cy="${y}" r="4" fill="${cl}" stroke="#fff" stroke-width="1.5"/></g>`;
+  };
+  return fl.map((f) => { const id = `sensor-${f.index}`; return openComponent(id) + pille(f) + closeComponent(id); }).join('');
+}
+
 function renderHeaters({ hso, hsu, geo, y_ru, y_bu, openComponent, closeComponent, F, c, more, S }) {
   let o = '';
   const stab = (y, hs) => {
@@ -951,6 +963,33 @@ function renderFreshWaterModule({ FM, FMx, model, portStub, openComponent, close
     o += `<path d="M430 22C426 29 424 32 424 35A6 6 0 0 0 436 35C436 32 434 29 430 22Z" fill="#fff" opacity=".85"/>`;
   } else o += `<path d="M430 30C424 40 421 45 421 49A9 9 0 0 0 439 49C439 45 436 40 430 30Z" fill="#fff" opacity=".85"/>`;
   o += closeComponent('fm');
+  return o;
+}
+
+function renderDomesticWater({ TW, ZK, c, model, tk, tw, F, zirk_on, zapf, more, zaehlerSym, pumpe, L, TT, FMx, S, NUM, U, ON }) {
+  let o = '';
+  const TWc = c.trinkwasser;
+  if (TW) {
+    const domesticOffset = model.components['domestic-boundary'].origin.y - model.components['domestic-boundary'].baseOrigin.y;
+    o += TWc && TWc.zaehler ? `<g${more(TWc.zaehler)}>${zaehlerSym(model.components['domestic-meter'].origin.x + 6, model.components['domestic-meter'].origin.y + 6)}</g>` : `<path d="M${tk - 4}${-23 + domesticOffset}l4 4 4-4" class="wa"/>`;
+    o += `<path d="M${tw - 4}${-19 + domesticOffset}l4-4 4 4" class="wa"/>`;
+    if (ZK) {
+      const b = model.components['circulation-pump'], px = b.origin.x + 10, py = b.origin.y + 10;
+      o += `<g data-act="zirk" class="wx"><title>${L.zirkTitle}</title><circle cx="${px}" cy="${py}" r="14" fill="transparent"/>${pumpe(px, py, 'l', zirk_on)}</g>`;
+      o += `<text x="${px}" y="${py - 14}" font-size="7" class="wc ws" font-weight="600">${L.zirk}</text>`;
+    }
+    o += `<text x="${tk - 8}" y="${-14 + domesticOffset}" font-size="7.5" class="we" font-weight="600" fill="${F.tw_kalt}">${esc(c.text_tw_kalt ?? L.kalt)}</text><text x="${tw + 8}" y="${-14 + domesticOffset}" font-size="7.5" font-weight="600" fill="${F.tw_warm}">${esc(c.text_tw_warm ?? L.warm)}</text>`;
+    if (TT && FMx && (FMx.temp || FMx.durchfluss))
+      o += `<text x="${tw + 8}" y="${-3 + domesticOffset}" font-size="8" class="wt"${more(FMx.temp || FMx.durchfluss)} fill="${zapf ? F.aktiv : '#9aa0a6'}">${[FMx.temp ? fmt(S(FMx.temp)) : '', FMx.durchfluss ? r1(NUM(FMx.durchfluss)) + ' l/min' : ''].filter(Boolean).join(' · ')}</text>`;
+    if (TWc) {
+      const z1 = [TWc.temp ? fmt(S(TWc.temp)) : '', TWc.zaehler ? `${r1(NUM(TWc.zaehler))} ${U(TWc.zaehler, 'm³')}` : ''].filter(Boolean).join(' · ');
+      if (z1) o += `<text x="${tk - 8}" y="${-3 + domesticOffset}" font-size="8" class="we wv wx" data-more="${esc(TWc.temp || TWc.zaehler)}">${esc(z1)}</text>`;
+      if (TWc.enthaertung) {
+        const softener = softenerState(TWc.enthaertung, L, S, U, ON);
+        o += `<text x="${tk - 8}" y="${8 + domesticOffset}" font-size="8" class="we ws wx" data-more="${esc(TWc.enthaertung)}">${L.enth} ${softener}</text>`;
+      }
+    }
+  }
   return o;
 }
 
@@ -1100,6 +1139,17 @@ function legionellaState(LG, L, F, S, ON) {
     return { lAkt, t, lc };
 }
 
+function renderLegionellaBadge({ c, L, F, S, ON, TT, tankId, openComponent, closeComponent }) {
+  let o = '';
+  const LG = c.legionellen;
+  if (LG) {
+    const { lAkt, t, lc } = legionellaState(LG, L, F, S, ON);
+    const bx = TT ? 226 : 80;
+    if (t) o += openComponent(tankId) + `<g data-more="${esc(LG.letzte || LG.aktiv)}" class="wx${lAkt ? ' wb' : ''}"><rect x="${bx}" y="-26" width="120" height="16" rx="8" fill="${lc}" fill-opacity=".16" stroke="${lc}"/><text x="${bx + 60}" y="-15" font-size="8" class="wc wt" fill="${lc}">${t}</text></g>` + closeComponent(tankId);
+  }
+  return o;
+}
+
 function renderHeatSource({ QS, QT, W, model, portStub, openComponent, closeComponent, S }) {
   if (!QS) return '';
   let o = '';
@@ -1153,6 +1203,45 @@ const stub = (x, y, w, hh) => `<rect x="${x}" y="${y}" width="${w}" height="${hh
 const zaehlerSym = (x, y) => `<rect x="${x - 6}" y="${y - 6}" width="12" height="12" rx="2" fill="#2b2f35" stroke="#cfd4da"/><circle cx="${x}" cy="${y}" r="2.6" fill="none" stroke="#cfd4da"/>`;
 const flamme = (w, hh) =>
   `M${-w} 0C${-w - 2} ${r1(-hh * 0.45)} ${r1(-w * 0.15)} ${r1(-hh * 0.6)} ${r1(w * 0.1)} ${-hh}C${r1(w * 0.5)} ${r1(-hh * 0.6)} ${r1(w + 2)} ${r1(-hh * 0.4)} ${w} 0Z`;
+
+function renderHeatingCircuits({ W8, c, model, more, S, openComponent, closeComponent, hks, mischer, CW, L, y_hm, pumpe, y_he, F }) {
+  let o = '';
+  if (W8) {
+    const WX = c.weiche;
+    const b = model.components.separator, { x, y } = b.origin, { width, height } = b.bounds;
+    o += `<g${more(WX.temp)}><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="10" fill="url(#wwW8)" stroke="#fff" stroke-opacity=".5" stroke-width="1.2"/>`;
+    o += openComponent('separator');
+    o += `<rect x="326" y="406" width="4" height="60" rx="2" fill="#fff" opacity=".25"/>`;
+    if (WX.temp) o += `<text x="332" y="436" font-size="7.5" class="wc wt wo" fill="#fff" transform="rotate(-90 332 436)">${fmt(S(WX.temp))}</text>`;
+    o += closeComponent('separator');
+    o += '</g>';
+  }
+  for (const [i, x] of hks.entries()) {
+    const branch = model.components[`heating-circuit-${i}`], drawX = branch.baseOrigin.x + 22, sx = drawX - 16;
+    if (x.MIX) {
+      const m = model.components[`heating-mixer-${i}`], j = model.junctions[`heating-return-tee-${i}`];
+      o += mischer(m.origin.x + 34, m.origin.y + 14, CW, isNum(x.m) ? x.a : null) + tee(j.x, j.y);
+      if (isNum(x.m)) o += openComponent(`heating-mixer-${i}`) + `<text x="${sx - 26}" y="${y_hm + 19}" font-size="7.5" class="wc wt wx" data-more="${esc(x.mischer)}" style="fill:${x.c}"><title>${L.mischerTitle(esc(x.m))}</title>${Math.round(x.a * 100)}%</text>` + closeComponent(`heating-mixer-${i}`);
+    }
+    if (x.pumpe) {
+      const b = model.components[`heating-pump-${i}`];
+      o += `<g${more(x.pumpe)}>${pumpe(b.origin.x + 10, b.origin.y + 10, 'd', x.on)}</g>`;
+    }
+    o += openComponent(`heating-circuit-${i}`);
+    o += `<path d="M${sx - 4} ${y_he - 9}l4 4 4-4M${drawX + 12} ${y_he - 5}l4-4 4 4" class="wa"/>`;
+    o += `<text x="${drawX}" y="${y_he + 16}" font-size="10" class="wc wt${x.on ? '' : ' wv'}"${x.on ? ` fill="${F.aktiv}"` : ''}>${esc(x.name)}</text>`;
+    let y = y_he + 28;
+    for (const z of x.zeilen) { o += `<text x="${drawX}" y="${y}" font-size="8.5" class="wc ws wx" data-more="${esc(z.e)}">${esc(z.t)}</text>`; y += 12; }
+    const hc = x.on ? x.c : '#8a9099';
+    if (x.typ === 'fussboden' || x.typ === 'fussbodenheizung' || x.typ === 'floor')
+      o += `<path d="M${drawX - 22} ${y}h40a3 3 0 0 1 0 6h-40a3 3 0 0 0 0 6h40a3 3 0 0 1 0 6h-40" fill="none" stroke="${hc}" stroke-width="2" stroke-linecap="round"/>`;
+    else if (x.typ === 'heizkoerper' || x.typ === 'radiator')
+      o += `<rect x="${drawX - 20}" y="${y - 2}" width="40" height="20" rx="3" fill="#2b2f35" stroke="${hc}" stroke-width="1.5"/>` +
+        [0, 1, 2, 3, 4].map((k) => `<path d="M${drawX - 14 + k * 7} ${y + 2}v12" stroke="${hc}" stroke-width="2" stroke-linecap="round"/>`).join('');
+    o += closeComponent(`heating-circuit-${i}`);
+  }
+  return o;
+}
 
 function renderValve({ WP, W, model, more, mischer, CK, CW, vb }) {
   if (!WP) return '';
@@ -1229,6 +1318,44 @@ function renderAdditionalHeatDevice({ K, kTyp, kName, kFeuerTyp, t_k, k_tr, k_wa
   }
   o += closeComponent('additional-heat');
 
+  return o;
+}
+
+function renderCardHeader({ chip, avg, col, titel, L, c, S, NUM, SO, so_on, K, kTyp, t_k, k_feuer, WP, W, kuehl, wp, wp_on, HS, hs_hatP, hs_p, hs_on }) {
+  let o = `<div class="kopf"><div class="l"><div class="ic"><ha-icon icon="mdi:water-boiler" style="--mdc-icon-size:22px;color:${avg !== null ? col(avg) : 'var(--secondary-text-color)'}"></ha-icon></div>`;
+  o += `<div><div class="t1">${esc(titel)}</div>${avg !== null ? `<div class="t2">${L.speicherAvg} ${r1(avg)} °C</div>` : ''}</div></div><div class="chips">`;
+  if (c.aussen) o += chip('mdi:thermometer', fmt(S(c.aussen)), false, c.aussen);
+  if (c.pv) {
+    const { text, on } = photovoltaicState(c.pv, NUM);
+    o += chip('mdi:solar-power', text, on, c.pv);
+  }
+  if (SO && SO.kollektor) o += chip('mdi:solar-panel', fmt(S(SO.kollektor)), so_on, SO.kollektor);
+  if (K && (K.temp || K.brenner || K.pumpe)) o += chip(ZUSATZ_ICON[kTyp], K.temp ? fmt(t_k) : k_feuer ? L.an : L.aus, k_feuer, K.temp || K.brenner || K.pumpe);
+  if (WP && W.leistung) o += chip(kuehl ? 'mdi:snowflake' : 'mdi:heat-pump', watt(wp), wp_on, W.leistung);
+  if (HS && hs_hatP) o += chip('mdi:heating-coil', watt(hs_p), hs_on);
+  o += '</div></div>';
+
+  return o;
+}
+
+function renderTemperatureLegend({ fl, FM, WP, L, c }) {
+  let o = '';
+  if (fl.length) {
+    const lx = FM || WP ? 405 : 280, ly = FM || WP ? 122 : 30;
+    o += `<text x="${lx}" y="${ly}" font-size="8" class="wc ws" font-weight="600" letter-spacing=".8">${L.speicher}</text><rect x="${lx - 19}" y="${ly + 6}" width="38" height="5" rx="2.5" fill="url(#wwLegend)"/><text x="${lx - 23}" y="${ly + 11}" font-size="8" class="we ws">${c.t_min}°</text><text x="${lx + 23}" y="${ly + 11}" font-size="8" class="ws">${c.t_max}°</text>`;
+  }
+  return o;
+}
+
+function renderDailyEnergy({ c, F, NUM, U }) {
+  let o = '';
+  if (c.energie.length) {
+    const pal = [F.aktiv, F.warm, F.kalt, F.solar, F.led, '#a855f7'];
+    const { vals, max } = energyState(c, NUM);
+    o += '<div class="en">' + c.energie.map((e, i) =>
+      `<div class="er" data-more="${esc(e.entity)}"><ha-icon icon="${esc(e.icon || 'mdi:lightning-bolt')}" style="--mdc-icon-size:16px"></ha-icon><span>${esc(e.name || e.entity)}</span>` +
+      `<div class="b"><i style="width:${r1((vals[i] / max) * 100)}%;background:${e.farbe || pal[i % pal.length]}"></i></div><span class="v">${r1(vals[i])} ${esc(U(e.entity, 'kWh'))}</span></div>`).join('') + '</div>';
+  }
   return o;
 }
 
@@ -1395,30 +1522,11 @@ class WarmwasserSchemaCard extends HTMLElement {
         `<path d="${route(-3)}" stroke="#fff" stroke-opacity=".25" stroke-width="3"/>` +
         `<rect x="${from.x - 5}" y="${from.y - 10}" width="5" height="20" rx="1.5" class="wk"/><rect x="${to.x}" y="${to.y - 10}" width="5" height="20" rx="1.5" class="wk"/>`;
     };
-    const pille = (f) => {
-      const y = r1(f.y), cl = col(f.wert);
-      return `<g${more(f.entity)}><line x1="60" y1="${y}" x2="72" y2="${y}" stroke="${cl}" stroke-width="1.5"/>` +
-        `<rect x="2" y="${r1(y - 15)}" width="58" height="30" rx="10" style="fill:var(--secondary-background-color,#2a2d33)" stroke="${cl}" stroke-width="1.5"/>` +
-        `<text x="31" y="${r1(y - 3)}" font-size="8" class="wc ws" font-weight="600" letter-spacing=".8">${esc(f.name)}</text>` +
-        `<text x="31" y="${r1(y + 10)}" font-size="12" class="wc wt wv">${fmt(f.wert)}</text>` +
-        `<circle cx="72" cy="${y}" r="4" fill="${cl}" stroke="#fff" stroke-width="1.5"/></g>`;
-    };
     const chip = (icon, text, on, e) =>
       `<span class="chip${e ? ' wx' : ''}"${e ? ` data-more="${esc(e)}"` : ''}${on ? ` style="background:color-mix(in srgb,${F.aktiv} 16%,transparent);color:${F.aktiv}"` : ''}><ha-icon icon="${icon}" style="--mdc-icon-size:15px"></ha-icon>${text}</span>`;
 
     /* ---------- Kopfzeile ---------- */
-    let o = `<div class="kopf"><div class="l"><div class="ic"><ha-icon icon="mdi:water-boiler" style="--mdc-icon-size:22px;color:${avg !== null ? col(avg) : 'var(--secondary-text-color)'}"></ha-icon></div>`;
-    o += `<div><div class="t1">${esc(titel)}</div>${avg !== null ? `<div class="t2">${L.speicherAvg} ${r1(avg)} °C</div>` : ''}</div></div><div class="chips">`;
-    if (c.aussen) o += chip('mdi:thermometer', fmt(S(c.aussen)), false, c.aussen);
-    if (c.pv) {
-      const { text, on } = photovoltaicState(c.pv, NUM);
-      o += chip('mdi:solar-power', text, on, c.pv);
-    }
-    if (SO && SO.kollektor) o += chip('mdi:solar-panel', fmt(S(SO.kollektor)), so_on, SO.kollektor);
-    if (K && (K.temp || K.brenner || K.pumpe)) o += chip(ZUSATZ_ICON[kTyp], K.temp ? fmt(t_k) : k_feuer ? L.an : L.aus, k_feuer, K.temp || K.brenner || K.pumpe);
-    if (WP && W.leistung) o += chip(kuehl ? 'mdi:snowflake' : 'mdi:heat-pump', watt(wp), wp_on, W.leistung);
-    if (HS && hs_hatP) o += chip('mdi:heating-coil', watt(hs_p), hs_on);
-    o += '</div></div>';
+    let o = renderCardHeader({ chip, avg, col, titel, L, c, S, NUM, SO, so_on, K, kTyp, t_k, k_feuer, WP, W, kuehl, wp, wp_on, HS, hs_hatP, hs_p, hs_on });
 
     /* ---------- Abmessungen ---------- */
     const QS = WP && QT !== 'luft';
@@ -1546,9 +1654,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
     // Preserve the compiler's bridge order for whole pipe groups and animation.
     if (routes) for (const id of Object.keys(primaryPipes).sort((a,b) => routes[a].paintOrder - routes[b].paintOrder)) o += primaryPipes[id];
-    const TWc = c.trinkwasser;
     if (TW) {
-      const domesticOffset = model.components['domestic-boundary'].origin.y - model.components['domestic-boundary'].baseOrigin.y;
       if (ZK) {
         const hot = model.connections['circulation-hot'], cold = model.connections['circulation-cold'];
         const middle = model.connections['circulation-pump-through'];
@@ -1568,25 +1674,8 @@ class WarmwasserSchemaCard extends HTMLElement {
         const cj = point(model.connections['circulation-cold'].to), hj = point(model.connections['circulation-hot'].from);
         o += `<path d="M${cj.x} ${cj.y}V${de.y}${de.x !== cj.x ? `H${de.x}` : ''}M${dh.x} ${dh.y}V${hj.y}${hj.x !== dh.x ? `H${hj.x}` : ''}" class="w3"/>`;
       }
-      o += TWc && TWc.zaehler ? `<g${more(TWc.zaehler)}>${zaehlerSym(model.components['domestic-meter'].origin.x + 6, model.components['domestic-meter'].origin.y + 6)}</g>` : `<path d="M${tk - 4}${-23 + domesticOffset}l4 4 4-4" class="wa"/>`;
-      o += `<path d="M${tw - 4}${-19 + domesticOffset}l4-4 4 4" class="wa"/>`;
-      if (ZK) {
-        const b = model.components['circulation-pump'], px = b.origin.x + 10, py = b.origin.y + 10;
-        o += `<g data-act="zirk" class="wx"><title>${L.zirkTitle}</title><circle cx="${px}" cy="${py}" r="14" fill="transparent"/>${pumpe(px, py, 'l', zirk_on)}</g>`;
-        o += `<text x="${px}" y="${py - 14}" font-size="7" class="wc ws" font-weight="600">${L.zirk}</text>`;
-      }
-      o += `<text x="${tk - 8}" y="${-14 + domesticOffset}" font-size="7.5" class="we" font-weight="600" fill="${F.tw_kalt}">${esc(c.text_tw_kalt ?? L.kalt)}</text><text x="${tw + 8}" y="${-14 + domesticOffset}" font-size="7.5" font-weight="600" fill="${F.tw_warm}">${esc(c.text_tw_warm ?? L.warm)}</text>`;
-      if (TT && FMx && (FMx.temp || FMx.durchfluss))
-        o += `<text x="${tw + 8}" y="${-3 + domesticOffset}" font-size="8" class="wt"${more(FMx.temp || FMx.durchfluss)} fill="${zapf ? F.aktiv : '#9aa0a6'}">${[FMx.temp ? fmt(S(FMx.temp)) : '', FMx.durchfluss ? r1(NUM(FMx.durchfluss)) + ' l/min' : ''].filter(Boolean).join(' · ')}</text>`;
-      if (TWc) {
-        const z1 = [TWc.temp ? fmt(S(TWc.temp)) : '', TWc.zaehler ? `${r1(NUM(TWc.zaehler))} ${U(TWc.zaehler, 'm³')}` : ''].filter(Boolean).join(' · ');
-        if (z1) o += `<text x="${tk - 8}" y="${-3 + domesticOffset}" font-size="8" class="we wv wx" data-more="${esc(TWc.temp || TWc.zaehler)}">${esc(z1)}</text>`;
-        if (TWc.enthaertung) {
-          const softener = softenerState(TWc.enthaertung, L, S, U, ON);
-          o += `<text x="${tk - 8}" y="${8 + domesticOffset}" font-size="8" class="we ws wx" data-more="${esc(TWc.enthaertung)}">${L.enth} ${softener}</text>`;
-        }
-      }
     }
+    o += renderDomesticWater({ TW, ZK, c, model, tk, tw, F, zirk_on, zapf, more, zaehlerSym, pumpe, L, TT, FMx, S, NUM, U, ON });
     if (K) {
       const returnFirst = model.connections[K.pumpe ? 'additional-return-tank' : 'additional-return'];
       const returnLast = model.connections[K.pumpe ? 'additional-return-device' : 'additional-return'];
@@ -1690,40 +1779,7 @@ class WarmwasserSchemaCard extends HTMLElement {
         o += `<path d="${railAnimation(from, to, model.connections['manifold-supply'], y_vv)}" class="w3" style="${td}"/>`;
       }
       o += `<text x="${bx1 - 8}" y="${y_vv + 3}" font-size="7.5" class="we ws" font-weight="600">VL</text><text x="${bx1 - 8}" y="${y_rv + 3}" font-size="7.5" class="we ws" font-weight="600">RL</text>`;
-      if (W8) {
-        const WX = c.weiche;
-        const b = model.components.separator, { x, y } = b.origin, { width, height } = b.bounds;
-        o += `<g${more(WX.temp)}><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="10" fill="url(#wwW8)" stroke="#fff" stroke-opacity=".5" stroke-width="1.2"/>`;
-        o += openComponent('separator');
-        o += `<rect x="326" y="406" width="4" height="60" rx="2" fill="#fff" opacity=".25"/>`;
-        if (WX.temp) o += `<text x="332" y="436" font-size="7.5" class="wc wt wo" fill="#fff" transform="rotate(-90 332 436)">${fmt(S(WX.temp))}</text>`;
-        o += closeComponent('separator');
-        o += '</g>';
-      }
-      for (const [i, x] of hks.entries()) {
-        const branch = model.components[`heating-circuit-${i}`], drawX = branch.baseOrigin.x + 22, sx = drawX - 16;
-        if (x.MIX) {
-          const m = model.components[`heating-mixer-${i}`], j = model.junctions[`heating-return-tee-${i}`];
-          o += mischer(m.origin.x + 34, m.origin.y + 14, CW, isNum(x.m) ? x.a : null) + tee(j.x, j.y);
-          if (isNum(x.m)) o += openComponent(`heating-mixer-${i}`) + `<text x="${sx - 26}" y="${y_hm + 19}" font-size="7.5" class="wc wt wx" data-more="${esc(x.mischer)}" style="fill:${x.c}"><title>${L.mischerTitle(esc(x.m))}</title>${Math.round(x.a * 100)}%</text>` + closeComponent(`heating-mixer-${i}`);
-        }
-        if (x.pumpe) {
-          const b = model.components[`heating-pump-${i}`];
-          o += `<g${more(x.pumpe)}>${pumpe(b.origin.x + 10, b.origin.y + 10, 'd', x.on)}</g>`;
-        }
-        o += openComponent(`heating-circuit-${i}`);
-        o += `<path d="M${sx - 4} ${y_he - 9}l4 4 4-4M${drawX + 12} ${y_he - 5}l4-4 4 4" class="wa"/>`;
-        o += `<text x="${drawX}" y="${y_he + 16}" font-size="10" class="wc wt${x.on ? '' : ' wv'}"${x.on ? ` fill="${F.aktiv}"` : ''}>${esc(x.name)}</text>`;
-        let y = y_he + 28;
-        for (const z of x.zeilen) { o += `<text x="${drawX}" y="${y}" font-size="8.5" class="wc ws wx" data-more="${esc(z.e)}">${esc(z.t)}</text>`; y += 12; }
-        const hc = x.on ? x.c : '#8a9099';
-        if (x.typ === 'fussboden' || x.typ === 'fussbodenheizung' || x.typ === 'floor')
-          o += `<path d="M${drawX - 22} ${y}h40a3 3 0 0 1 0 6h-40a3 3 0 0 0 0 6h40a3 3 0 0 1 0 6h-40" fill="none" stroke="${hc}" stroke-width="2" stroke-linecap="round"/>`;
-        else if (x.typ === 'heizkoerper' || x.typ === 'radiator')
-          o += `<rect x="${drawX - 20}" y="${y - 2}" width="40" height="20" rx="3" fill="#2b2f35" stroke="${hc}" stroke-width="1.5"/>` +
-            [0, 1, 2, 3, 4].map((k) => `<path d="M${drawX - 14 + k * 7} ${y + 2}v12" stroke="${hc}" stroke-width="2" stroke-linecap="round"/>`).join('');
-        o += closeComponent(`heating-circuit-${i}`);
-      }
+      o += renderHeatingCircuits({ W8, c, model, more, S, openComponent, closeComponent, hks, mischer, CW, L, y_hm, pumpe, y_he, F });
     }
 
     /* Umschaltventil WP + T-Stücke */
@@ -1741,10 +1797,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     o += renderHeatMeters({ WP, W, K, FM, SPLIT, model, point, y_ru, more, zaehlerSym, NUM, U, openComponent, closeComponent });
 
     /* Legende */
-    if (fl.length) {
-      const lx = FM || WP ? 405 : 280, ly = FM || WP ? 122 : 30;
-      o += `<text x="${lx}" y="${ly}" font-size="8" class="wc ws" font-weight="600" letter-spacing=".8">${L.speicher}</text><rect x="${lx - 19}" y="${ly + 6}" width="38" height="5" rx="2.5" fill="url(#wwLegend)"/><text x="${lx - 23}" y="${ly + 11}" font-size="8" class="we ws">${c.t_min}°</text><text x="${lx + 23}" y="${ly + 11}" font-size="8" class="ws">${c.t_max}°</text>`;
-    }
+    o += renderTemperatureLegend({ fl, FM, WP, L, c });
 
     /* ---------- Solar ---------- */
     o += renderSolarCollector({ SO, so_on, x0, model, F, L, S, U, NUM, more, pumpe, openComponent, closeComponent });
@@ -1771,15 +1824,10 @@ class WarmwasserSchemaCard extends HTMLElement {
     if (K) o += portStub(`${bufferId}.additional-supply`) + portStub(`${bufferId}.additional-return`);
     if (FM) o += portStub(model.connections['fm-return'].to);
     o += renderHeaters({ hso, hsu, geo, y_ru, y_bu, openComponent, closeComponent, F, c, more, S });
-    o += fl.map((f) => { const id = `sensor-${f.index}`; return openComponent(id) + pille(f) + closeComponent(id); }).join('');
+    o += renderTankSensors({ fl, col, more, openComponent, closeComponent });
 
     /* Legionellenschutz */
-    const LG = c.legionellen;
-    if (LG) {
-      const { lAkt, t, lc } = legionellaState(LG, L, F, S, ON);
-      const bx = TT ? 226 : 80;
-      if (t) o += openComponent(tankId) + `<g data-more="${esc(LG.letzte || LG.aktiv)}" class="wx${lAkt ? ' wb' : ''}"><rect x="${bx}" y="-26" width="120" height="16" rx="8" fill="${lc}" fill-opacity=".16" stroke="${lc}"/><text x="${bx + 60}" y="-15" font-size="8" class="wc wt" fill="${lc}">${t}</text></g>` + closeComponent(tankId);
-    }
+    o += renderLegionellaBadge({ c, L, F, S, ON, TT, tankId, openComponent, closeComponent });
 
     /* ---------- Frischwassermodul ---------- */
     o += renderFreshWaterModule({ FM, FMx, model, portStub, openComponent, closeComponent, c, more, zapf, F, fmTempText, fmFlowText });
@@ -1792,13 +1840,7 @@ class WarmwasserSchemaCard extends HTMLElement {
     o += '</svg>';
 
     /* ---------- Tagesenergie ---------- */
-    if (c.energie.length) {
-      const pal = [F.aktiv, F.warm, F.kalt, F.solar, F.led, '#a855f7'];
-      const { vals, max } = energyState(c, NUM);
-      o += '<div class="en">' + c.energie.map((e, i) =>
-        `<div class="er" data-more="${esc(e.entity)}"><ha-icon icon="${esc(e.icon || 'mdi:lightning-bolt')}" style="--mdc-icon-size:16px"></ha-icon><span>${esc(e.name || e.entity)}</span>` +
-        `<div class="b"><i style="width:${r1((vals[i] / max) * 100)}%;background:${e.farbe || pal[i % pal.length]}"></i></div><span class="v">${r1(vals[i])} ${esc(U(e.entity, 'kWh'))}</span></div>`).join('') + '</div>';
-    }
+    o += renderDailyEnergy({ c, F, NUM, U });
     return o;
   }
 }
