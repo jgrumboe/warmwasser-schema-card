@@ -765,6 +765,56 @@ function routeDiagramConnections(model, ids, options = {}) {
   return result;
 }
 
+function renderTank({ model, SPLIT, tankId, bufferId, L, c, TYP, y_t, point, col, fl, zapf, zirk_on, TT, TG, portStub, openComponent, closeComponent }) {
+  let o = '';
+  o += openComponent('tank-feet') + `<rect x="93" y="362" width="11" height="22" rx="2" fill="#3a3f46"/><rect x="170" y="362" width="11" height="22" rx="2" fill="#3a3f46"/>` + closeComponent('tank-feet');
+  const cap = (component) => {
+    const { x, y: a } = component.origin, { width, height } = component.bounds, b = a + height;
+    const gradient = component.origin.y === component.baseOrigin.y ? 'wwTemp' : `wwTemp-${component.id}`;
+    return `<rect x="${x}" y="${a}" width="${width}" height="${b - a}" rx="65" ry="22" fill="url(#${gradient})" filter="url(#wwShadow)"/><rect x="${x}" y="${a}" width="${width}" height="${b - a}" rx="65" ry="22" fill="url(#wwCyl)"/>` +
+    `<rect x="${x + 14}" y="${a + 30}" width="7" height="${b - a - 60}" rx="3.5" fill="#fff" opacity=".14"/><path d="M${x} ${a + 26}Q${x + 65} ${a + 46} ${x + 130} ${a + 26}" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="1.2"/><path d="M${x} ${b - 26}Q${x + 65} ${b - 6} ${x + 130} ${b - 26}" fill="none" stroke="#000" stroke-opacity=".25" stroke-width="1.2"/>` +
+    `<rect x="${x}" y="${a}" width="${width}" height="${b - a}" rx="65" ry="22" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="1.5"/>`;
+  };
+  const etikett = (y, t) => `<text x="137" y="${y}" font-size="8.5" class="wc wt wo" letter-spacing="1" fill="#fff" opacity=".8">${esc(t)}</text>`;
+  const liter = (v) => (v !== null && v !== undefined && v !== '' ? `${v} l` : '');
+  if (SPLIT) {
+    const a = model.components[tankId], b = model.components[bufferId];
+    o += cap(a) + cap(b);
+    o += openComponent(tankId) + etikett(38, [L.ww, liter(c.volumen_ww)].filter(Boolean).join(' · ')) + closeComponent(tankId);
+    o += openComponent(bufferId) + etikett(338, [L.puffer, liter(c.volumen)].filter(Boolean).join(' · ')) + closeComponent(bufferId);
+  } else {
+    const a = model.components[tankId];
+    o += cap(a);
+    if (liter(c.volumen)) o += openComponent(tankId) + etikett(338, liter(c.volumen)) + closeComponent(tankId);
+  }
+  if (TYP === 'kombi') {
+    o += openComponent('domestic-inner');
+    const ib = y_t - 14, inner = model.components['domestic-inner'], edge = model.connections['domestic-exchanger'];
+    const aa = point(edge.from), bb = point(edge.to), dx = inner.origin.x - inner.baseOrigin.x, dy = inner.origin.y - inner.baseOrigin.y;
+    const ax = aa.x - dx, ay = aa.y - dy, bx = bb.x - dx, by = bb.y - dy;
+    o += `<rect x="102" y="30" width="70" height="${ib - 30}" rx="35" ry="14" fill="${col(fl.length ? fl[0].wert : 'x')}" fill-opacity=".9" stroke="#fff" stroke-opacity=".7" stroke-width="1.5"/>`;
+    o += `<rect x="110" y="44" width="5" height="${Math.max(0, ib - 74)}" rx="2.5" fill="#fff" opacity=".2"/>`;
+    o += `<path d="M${ax} ${ay}V${ib - 10}" stroke="#cfd4da" stroke-width="2" opacity=".8"/><path d="M${bx} ${by}V34" stroke="#cfd4da" stroke-width="2" opacity=".8"/>`;
+    o += `<text x="146" y="${ib - 12}" font-size="8" class="wc wt wo" fill="#fff" opacity=".85">WW</text>`;
+    if (zapf || zirk_on) o += `<path d="M${ax} ${ay}V${ib - 10}" class="w3" style="stroke-width:1.4px"/>`;
+    o += closeComponent('domestic-inner');
+  }
+  if (TYP === 'hygiene') {
+    o += openComponent('domestic-inner');
+    const inner = model.components['domestic-inner'], edge = model.connections['domestic-exchanger'];
+    const a = point(edge.from), b = point(edge.to), dx = inner.origin.x - inner.baseOrigin.x, dy = inner.origin.y - inner.baseOrigin.y;
+    let hp = `M${a.x - dx} ${a.y - dy}V352H100`;
+    for (let y = 352; y > 48; y -= 24) hp += `C100 ${y - 8} 176 ${y - 4} 176 ${y - 12}C176 ${y - 20} 100 ${y - 16} 100 ${y - 24}`;
+    hp += `L164 32V${b.y - dy}${b.x - dx !== 164 ? `H${b.x - dx}` : ''}`;
+    o += `<path d="${hp}" fill="none" stroke="#cfd4da" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>`;
+    if (zapf || zirk_on) o += `<path d="${hp}" class="w3" style="stroke-width:1.4px"/>`;
+    o += closeComponent('domestic-inner');
+  }
+  if (TT) o += portStub(`${tankId}.cold-water`) + portStub(`${tankId}.hot-water`);
+  if (TG) o += openComponent(tankId) + `<rect x="73" y="${y_t - 2}" width="128" height="4" fill="url(#wwGrid)"/><path d="M73 ${y_t - 2}H201M73 ${y_t + 2}H201" stroke="#fff" stroke-opacity=".6" stroke-width=".7"/>` + closeComponent(tankId);
+  return o;
+}
+
 function tankState(c, S, y_t) {
   const fl = c.fuehler.map((f, i) => {
     const pos = isNum(f.hoehe) ? Number(f.hoehe) : ((i + 0.5) * 100) / c.fuehler.length;
@@ -787,6 +837,25 @@ function tankState(c, S, y_t) {
   return { fl, stops, avg, col };
 }
 
+function renderHeaters({ hso, hsu, geo, y_ru, y_bu, openComponent, closeComponent, F, c, more, S }) {
+  let o = '';
+  const stab = (y, hs) => {
+    const cl = hs.on ? F.aktiv : '#b0b6bd', pitch = 70 / c.hs_stufen;
+    let s = hs.on ? `<ellipse cx="156" cy="${y}" rx="50" ry="13" fill="url(#wwHeat)" class="wb" style="animation-duration:2.4s"/>` : '';
+    s += `<g${more(hs.stufe || hs.leistung || hs.temp)}><path d="M202 ${y}h-10l-3-4${'l-6 8l-6-8'.repeat(6)}l-3 4" fill="none" stroke="${cl}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+    s += `<rect x="198" y="${y - 11}" width="16" height="22" rx="3" fill="#2b2f35" stroke="${cl}" stroke-width="1.5"/>`;
+    s += `<text x="192" y="${y - 13}" font-size="9.5" class="we wo wt" fill="${hs.on ? F.aktiv : '#fff'}">${esc(hs.name)}</text>`;
+    if (hs.stufe) for (let i = 0; i < c.hs_stufen; i++)
+      s += `<rect x="${r2(124 + i * pitch)}" y="${y + 11}" width="${r2(pitch - 2)}" height="4" rx="1.5" fill="${i < hs.step ? F.aktiv : 'rgba(255,255,255,.3)'}"/>`;
+    const info = [hs.leistung ? watt(hs.p) : '', hs.temp ? fmt(S(hs.temp)) : ''].filter(Boolean).join(' · ');
+    if (info) s += `<text x="192" y="${y + (hs.stufe ? 28 : 22)}" font-size="9" class="we wo" fill="#fff">${info}</text>`;
+    return s + '</g>';
+  };
+  if (hso) o += openComponent('upper-heater') + stab(geo.heaterY, hso) + closeComponent('upper-heater');
+  if (hsu) o += openComponent('lower-heater') + stab((y_ru + y_bu) / 2, hsu) + closeComponent('lower-heater');
+  return o;
+}
+
 function heaterState(c, L, S, NUM) {
   const heiz = (x, n) => {
     if (!x) return null;
@@ -799,6 +868,41 @@ function heaterState(c, L, S, NUM) {
   const hs_p = (hso ? hso.p : 0) + (hsu ? hsu.p : 0), hs_hatP = (hso && hso.leistung) || (hsu && hsu.leistung);
 
   return { hso, hsu, HS, hs_on, hs_p, hs_hatP };
+}
+
+function renderHeatPump({ WP, W, model, portStub, openComponent, closeComponent, c, wpCopText, wp_abtau, F, wp_on, kuehl, QT, more, wpStatus, wpPowerText, wpTemperatures, S, L, wp_sperre }) {
+  if (!WP) return '';
+  let o = '';
+  const b = model.components.wp, { x, y } = b.origin, { width, height } = b.bounds;
+  o += `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="14" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="14" fill="url(#wwBox)"/>`;
+  o += portStub(model.connections['wp-upper-supply'].from) + portStub(model.connections['wp-lower-supply'].from) + portStub(model.connections['wp-valve-return'].to);
+  o += openComponent('wp');
+  o += `<text x="342" y="168" font-size="9" class="wt" letter-spacing="2" fill="#fff" opacity=".9">${esc(c.hersteller)}</text>`;
+  if (W.cop) o += `<text x="438" y="168" font-size="9" class="we wt wx" data-more="${esc(W.cop)}" fill="#fff">${wpCopText}</text>`;
+  o += `<circle cx="390" cy="226" r="42" fill="#15171b" stroke="#0c0d0f" stroke-width="3"/><circle cx="390" cy="226" r="36" fill="#1d2025"/>`;
+  const fan = wp_abtau ? F.kalt : wp_on ? (kuehl ? F.kalt : F.aktiv) : '#6b7280';
+  const dreht = wp_on || wp_abtau;
+  if (QT === 'luft') {
+    o += `<g fill="${fan}"${dreht ? ' class="wr"' : ''}${wp_abtau ? ' style="animation-duration:4s"' : ''}>` +
+      [0, 72, 144, 216, 288].map((a) => `<path d="M390 226Q405 213 397 192Q383 203 390 226Z" transform="rotate(${a} 390 226)"/>`).join('') + '</g>';
+    o += `<circle cx="390" cy="226" r="14" fill="none" stroke="#fff" stroke-opacity=".07"/><circle cx="390" cy="226" r="25" fill="none" stroke="#fff" stroke-opacity=".07"/>`;
+  } else {
+    o += `<g${dreht ? ' class="wr" style="animation-duration:3s"' : ''}><path d="M390 222a4 4 0 1 1-4 4a9 9 0 1 0 9-9a15 15 0 1 1-15 15a22 22 0 1 0 22-22" fill="none" stroke="${fan}" stroke-width="3.5" stroke-linecap="round"/></g>`;
+  }
+  o += `<circle cx="390" cy="226" r="7" fill="#2b2f35" stroke="#555b63" stroke-width="1.5"/>`;
+  const st = wpStatus;
+  o += `<g${more(W.leistung || W.betrieb || W.waerme)}><rect x="342" y="282" width="96" height="46" rx="8" fill="#0f1114" fill-opacity=".85" stroke="#fff" stroke-opacity=".08"/>`;
+  if (W.leistung) o += `<text x="390" y="305" font-size="17" class="wc wt" fill="${wp_on ? (kuehl ? F.kalt : F.aktiv) : '#e0e3e7'}">${wpPowerText}</text>`;
+  o += `<text x="390" y="${W.leistung ? 320 : 309}" font-size="${W.leistung ? 8.5 : 10}" class="wc" fill="${st[1]}">${esc(st[0])}</text></g>`;
+  const vr = wpTemperatures;
+  if (vr) o += `<text x="390" y="341" font-size="8.5" class="wc wx" data-more="${esc(W.vorlauf || W.ruecklauf)}" fill="#fff" opacity=".9">${vr}</text>`;
+  o += `<text x="342" y="364" font-size="20" font-weight="800" fill="#fff">${esc(c.name_wp)}</text>`;
+  if (W.sg_ready) o += `<text x="424" y="356" font-size="8" class="we wt wx" data-more="${esc(W.sg_ready)}" fill="#fff" opacity=".85">SG ${esc(S(W.sg_ready))}</text>`;
+  o += `<circle cx="434" cy="353" r="5" fill="${wp_sperre ? F.warm : wp_on ? F.led : '#4b5058'}" stroke="#fff" stroke-opacity=".35"${wp_on ? ' class="wb"' : ''}/>`;
+  if (QT === 'luft' && (W.quelle_ein || W.quelle_aus))
+    o += `<text x="390" y="382" font-size="8" class="wc wv wx" data-more="${esc(W.quelle_ein || W.quelle_aus)}">${L.luft} ${[W.quelle_ein ? fmt(S(W.quelle_ein)) : '', W.quelle_aus ? fmt(S(W.quelle_aus)) : ''].filter(Boolean).join(' → ')}</text>`;
+  o += closeComponent('wp');
+  return o;
 }
 
 function heatPumpState(c, L, F, S, ON, NUM) {
@@ -829,6 +933,25 @@ function heatPumpState(c, L, F, S, ON, NUM) {
   const tO = vb === null ? 1 : 1 / Math.max(vb, 0.04), tU = vb === null ? 1 : 1 / Math.max(1 - vb, 0.04);
 
   return { W, WP, wp, wp_sperre, wp_abtau, kuehl, wp_on, CW, CK, QT, vb, wpO, wpU, tO, tU };
+}
+
+function renderFreshWaterModule({ FM, FMx, model, portStub, openComponent, closeComponent, c, more, zapf, F, fmTempText, fmFlowText }) {
+  if (!FM) return '';
+  let o = '';
+  const b = model.components.fm, { x, y } = b.origin, { width, height } = b.bounds;
+  o += `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="12" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="12" fill="url(#wwBox)"/>`;
+  o += portStub(model.connections['fm-supply'].to) + portStub(model.connections['fm-return'].from) + portStub('fm.cold-water') + portStub('fm.hot-water');
+  o += openComponent('fm');
+  o += `<text x="352" y="32" font-size="8" class="wt" letter-spacing="2" fill="#fff" opacity=".85">${esc(c.hersteller)}</text><text x="352" y="92" font-size="22" font-weight="800" fill="#fff">${esc(c.name_fm)}</text>`;
+  if (FMx && (FMx.temp || FMx.durchfluss)) {
+    o += `<g${more(FMx.temp || FMx.durchfluss)}><rect x="392" y="62" width="52" height="34" rx="5" fill="#0f1114" fill-opacity=".85" stroke="#fff" stroke-opacity=".08"/>`;
+    if (FMx.temp) o += `<text x="418" y="${FMx.durchfluss ? 77 : 84}" font-size="11" class="wc wt" fill="${zapf ? F.aktiv : '#e0e3e7'}">${fmTempText}</text>`;
+    if (FMx.durchfluss) o += `<text x="418" y="${FMx.temp ? 90 : 84}" font-size="8.5" class="wc" fill="${zapf ? F.aktiv : '#9aa0a6'}">${fmFlowText}</text>`;
+    o += '</g>';
+    o += `<path d="M430 22C426 29 424 32 424 35A6 6 0 0 0 436 35C436 32 434 29 430 22Z" fill="#fff" opacity=".85"/>`;
+  } else o += `<path d="M430 30C424 40 421 45 421 49A9 9 0 0 0 439 49C439 45 436 40 430 30Z" fill="#fff" opacity=".85"/>`;
+  o += closeComponent('fm');
+  return o;
 }
 
 function freshWaterState(c, FMx, ZK, S, ON, NUM) {
@@ -965,6 +1088,24 @@ function legionellaState(LG, L, F, S, ON) {
       }
     }
     return { lAkt, t, lc };
+}
+
+function renderHeatSource({ QS, QT, W, model, portStub, openComponent, closeComponent, S }) {
+  if (!QS) return '';
+  let o = '';
+  o += openComponent('heat-source');
+  o += `<rect x="382" y="404" width="100" height="156" rx="4" fill="#6b4f3a" fill-opacity=".35"/><path d="M382 404H482" stroke="#4cb050" stroke-width="3"/>`;
+  if (QT === 'wasser') {
+    o += `<rect x="382" y="478" width="100" height="82" rx="4" fill="#3d8bff" fill-opacity=".25"/><path d="M382 478q6-4 12 0t12 0 12 0 12 0 12 0 12 0 12 0 12 0 4 0" fill="none" stroke="#3d8bff" stroke-opacity=".7" stroke-width="1.2"/>`;
+    o += `<rect x="391" y="408" width="18" height="140" rx="3" fill="none" stroke="#9aa0a6" stroke-opacity=".7"/><rect x="421" y="408" width="18" height="140" rx="3" fill="none" stroke="#9aa0a6" stroke-opacity=".7"/>`;
+  }
+  o += closeComponent('heat-source');
+  o += portStub(model.connections['source-in'].from) + portStub(model.connections['source-out'].to);
+  o += openComponent('heat-source');
+  if (W.quelle_ein) o += `<text x="444" y="426" font-size="8.5" class="wt wv wx" data-more="${esc(W.quelle_ein)}">↑ ${fmt(S(W.quelle_ein))}</text>`;
+  if (W.quelle_aus) o += `<text x="444" y="440" font-size="8.5" class="wt wv wx" data-more="${esc(W.quelle_aus)}">↓ ${fmt(S(W.quelle_aus))}</text>`;
+  o += closeComponent('heat-source');
+  return o;
 }
 
 function sourcePumpState(W, wp_on, ON) {
@@ -1251,18 +1392,6 @@ class WarmwasserSchemaCard extends HTMLElement {
         `<text x="31" y="${r1(y - 3)}" font-size="8" class="wc ws" font-weight="600" letter-spacing=".8">${esc(f.name)}</text>` +
         `<text x="31" y="${r1(y + 10)}" font-size="12" class="wc wt wv">${fmt(f.wert)}</text>` +
         `<circle cx="72" cy="${y}" r="4" fill="${cl}" stroke="#fff" stroke-width="1.5"/></g>`;
-    };
-    const stab = (y, hs) => {
-      const cl = hs.on ? F.aktiv : '#b0b6bd', pitch = 70 / c.hs_stufen;
-      let s = hs.on ? `<ellipse cx="156" cy="${y}" rx="50" ry="13" fill="url(#wwHeat)" class="wb" style="animation-duration:2.4s"/>` : '';
-      s += `<g${more(hs.stufe || hs.leistung || hs.temp)}><path d="M202 ${y}h-10l-3-4${'l-6 8l-6-8'.repeat(6)}l-3 4" fill="none" stroke="${cl}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
-      s += `<rect x="198" y="${y - 11}" width="16" height="22" rx="3" fill="#2b2f35" stroke="${cl}" stroke-width="1.5"/>`;
-      s += `<text x="192" y="${y - 13}" font-size="9.5" class="we wo wt" fill="${hs.on ? F.aktiv : '#fff'}">${esc(hs.name)}</text>`;
-      if (hs.stufe) for (let i = 0; i < c.hs_stufen; i++)
-        s += `<rect x="${r2(124 + i * pitch)}" y="${y + 11}" width="${r2(pitch - 2)}" height="4" rx="1.5" fill="${i < hs.step ? F.aktiv : 'rgba(255,255,255,.3)'}"/>`;
-      const info = [hs.leistung ? watt(hs.p) : '', hs.temp ? fmt(S(hs.temp)) : ''].filter(Boolean).join(' · ');
-      if (info) s += `<text x="192" y="${y + (hs.stufe ? 28 : 22)}" font-size="9" class="we wo" fill="#fff">${info}</text>`;
-      return s + '</g>';
     };
     const chip = (icon, text, on, e) =>
       `<span class="chip${e ? ' wx' : ''}"${e ? ` data-more="${esc(e)}"` : ''}${on ? ` style="background:color-mix(in srgb,${F.aktiv} 16%,transparent);color:${F.aktiv}"` : ''}><ha-icon icon="${icon}" style="--mdc-icon-size:15px"></ha-icon>${text}</span>`;
@@ -1628,59 +1757,14 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
 
     /* ---------- Speicher ---------- */
-    o += openComponent('tank-feet') + `<rect x="93" y="362" width="11" height="22" rx="2" fill="#3a3f46"/><rect x="170" y="362" width="11" height="22" rx="2" fill="#3a3f46"/>` + closeComponent('tank-feet');
-    const cap = (component) => {
-      const { x, y: a } = component.origin, { width, height } = component.bounds, b = a + height;
-      const gradient = component.origin.y === component.baseOrigin.y ? 'wwTemp' : `wwTemp-${component.id}`;
-      return `<rect x="${x}" y="${a}" width="${width}" height="${b - a}" rx="65" ry="22" fill="url(#${gradient})" filter="url(#wwShadow)"/><rect x="${x}" y="${a}" width="${width}" height="${b - a}" rx="65" ry="22" fill="url(#wwCyl)"/>` +
-      `<rect x="${x + 14}" y="${a + 30}" width="7" height="${b - a - 60}" rx="3.5" fill="#fff" opacity=".14"/><path d="M${x} ${a + 26}Q${x + 65} ${a + 46} ${x + 130} ${a + 26}" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="1.2"/><path d="M${x} ${b - 26}Q${x + 65} ${b - 6} ${x + 130} ${b - 26}" fill="none" stroke="#000" stroke-opacity=".25" stroke-width="1.2"/>` +
-      `<rect x="${x}" y="${a}" width="${width}" height="${b - a}" rx="65" ry="22" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="1.5"/>`;
-    };
-    const etikett = (y, t) => `<text x="137" y="${y}" font-size="8.5" class="wc wt wo" letter-spacing="1" fill="#fff" opacity=".8">${esc(t)}</text>`;
-    const liter = (v) => (v !== null && v !== undefined && v !== '' ? `${v} l` : '');
-    if (SPLIT) {
-      const a = model.components[tankId], b = model.components[bufferId];
-      o += cap(a) + cap(b);
-      o += openComponent(tankId) + etikett(38, [L.ww, liter(c.volumen_ww)].filter(Boolean).join(' · ')) + closeComponent(tankId);
-      o += openComponent(bufferId) + etikett(338, [L.puffer, liter(c.volumen)].filter(Boolean).join(' · ')) + closeComponent(bufferId);
-    } else {
-      const a = model.components[tankId];
-      o += cap(a);
-      if (liter(c.volumen)) o += openComponent(tankId) + etikett(338, liter(c.volumen)) + closeComponent(tankId);
-    }
-    if (TYP === 'kombi') {
-      o += openComponent('domestic-inner');
-      const ib = y_t - 14, inner = model.components['domestic-inner'], edge = model.connections['domestic-exchanger'];
-      const aa = point(edge.from), bb = point(edge.to), dx = inner.origin.x - inner.baseOrigin.x, dy = inner.origin.y - inner.baseOrigin.y;
-      const ax = aa.x - dx, ay = aa.y - dy, bx = bb.x - dx, by = bb.y - dy;
-      o += `<rect x="102" y="30" width="70" height="${ib - 30}" rx="35" ry="14" fill="${col(fl.length ? fl[0].wert : 'x')}" fill-opacity=".9" stroke="#fff" stroke-opacity=".7" stroke-width="1.5"/>`;
-      o += `<rect x="110" y="44" width="5" height="${Math.max(0, ib - 74)}" rx="2.5" fill="#fff" opacity=".2"/>`;
-      o += `<path d="M${ax} ${ay}V${ib - 10}" stroke="#cfd4da" stroke-width="2" opacity=".8"/><path d="M${bx} ${by}V34" stroke="#cfd4da" stroke-width="2" opacity=".8"/>`;
-      o += `<text x="146" y="${ib - 12}" font-size="8" class="wc wt wo" fill="#fff" opacity=".85">WW</text>`;
-      if (zapf || zirk_on) o += `<path d="M${ax} ${ay}V${ib - 10}" class="w3" style="stroke-width:1.4px"/>`;
-      o += closeComponent('domestic-inner');
-    }
-    if (TYP === 'hygiene') {
-      o += openComponent('domestic-inner');
-      const inner = model.components['domestic-inner'], edge = model.connections['domestic-exchanger'];
-      const a = point(edge.from), b = point(edge.to), dx = inner.origin.x - inner.baseOrigin.x, dy = inner.origin.y - inner.baseOrigin.y;
-      let hp = `M${a.x - dx} ${a.y - dy}V352H100`;
-      for (let y = 352; y > 48; y -= 24) hp += `C100 ${y - 8} 176 ${y - 4} 176 ${y - 12}C176 ${y - 20} 100 ${y - 16} 100 ${y - 24}`;
-      hp += `L164 32V${b.y - dy}${b.x - dx !== 164 ? `H${b.x - dx}` : ''}`;
-      o += `<path d="${hp}" fill="none" stroke="#cfd4da" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>`;
-      if (zapf || zirk_on) o += `<path d="${hp}" class="w3" style="stroke-width:1.4px"/>`;
-      o += closeComponent('domestic-inner');
-    }
-    if (TT) o += portStub(`${tankId}.cold-water`) + portStub(`${tankId}.hot-water`);
-    if (TG) o += openComponent(tankId) + `<rect x="73" y="${y_t - 2}" width="128" height="4" fill="url(#wwGrid)"/><path d="M73 ${y_t - 2}H201M73 ${y_t + 2}H201" stroke="#fff" stroke-opacity=".6" stroke-width=".7"/>` + closeComponent(tankId);
+    o += renderTank({ model, SPLIT, tankId, bufferId, L, c, TYP, y_t, point, col, fl, zapf, zirk_on, TT, TG, portStub, openComponent, closeComponent });
     o += renderSolarExchanger({ SO, so_on, model, F, point, bufferId, portStub, openComponent, closeComponent });
     if (FM) o += portStub(model.connections['fm-supply'].from);
     if (WP) o += portStub(model.connections['wp-upper-supply'].to) + portStub(model.connections['wp-upper-return'].from);
     if (WP || HK) o += WP ? portStub(model.connections['wp-lower-supply'].to) + portStub(model.connections['wp-lower-return'].from) : portStub(model.connections['hk-supply'].from) + portStub(model.connections['hk-return'].to);
     if (K) o += portStub(`${bufferId}.additional-supply`) + portStub(`${bufferId}.additional-return`);
     if (FM) o += portStub(model.connections['fm-return'].to);
-    if (hso) o += openComponent('upper-heater') + stab(geo.heaterY, hso) + closeComponent('upper-heater');
-    if (hsu) o += openComponent('lower-heater') + stab((y_ru + y_bu) / 2, hsu) + closeComponent('lower-heater');
+    o += renderHeaters({ hso, hsu, geo, y_ru, y_bu, openComponent, closeComponent, F, c, more, S });
     o += fl.map((f) => { const id = `sensor-${f.index}`; return openComponent(id) + pille(f) + closeComponent(id); }).join('');
 
     /* Legionellenschutz */
@@ -1692,70 +1776,13 @@ class WarmwasserSchemaCard extends HTMLElement {
     }
 
     /* ---------- Frischwassermodul ---------- */
-    if (FM) {
-      const b = model.components.fm, { x, y } = b.origin, { width, height } = b.bounds;
-      o += `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="12" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="12" fill="url(#wwBox)"/>`;
-      o += portStub(model.connections['fm-supply'].to) + portStub(model.connections['fm-return'].from) + portStub('fm.cold-water') + portStub('fm.hot-water');
-      o += openComponent('fm');
-      o += `<text x="352" y="32" font-size="8" class="wt" letter-spacing="2" fill="#fff" opacity=".85">${esc(c.hersteller)}</text><text x="352" y="92" font-size="22" font-weight="800" fill="#fff">${esc(c.name_fm)}</text>`;
-      if (FMx && (FMx.temp || FMx.durchfluss)) {
-        o += `<g${more(FMx.temp || FMx.durchfluss)}><rect x="392" y="62" width="52" height="34" rx="5" fill="#0f1114" fill-opacity=".85" stroke="#fff" stroke-opacity=".08"/>`;
-        if (FMx.temp) o += `<text x="418" y="${FMx.durchfluss ? 77 : 84}" font-size="11" class="wc wt" fill="${zapf ? F.aktiv : '#e0e3e7'}">${fmTempText}</text>`;
-        if (FMx.durchfluss) o += `<text x="418" y="${FMx.temp ? 90 : 84}" font-size="8.5" class="wc" fill="${zapf ? F.aktiv : '#9aa0a6'}">${fmFlowText}</text>`;
-        o += '</g>';
-        o += `<path d="M430 22C426 29 424 32 424 35A6 6 0 0 0 436 35C436 32 434 29 430 22Z" fill="#fff" opacity=".85"/>`;
-      } else o += `<path d="M430 30C424 40 421 45 421 49A9 9 0 0 0 439 49C439 45 436 40 430 30Z" fill="#fff" opacity=".85"/>`;
-      o += closeComponent('fm');
-    }
+    o += renderFreshWaterModule({ FM, FMx, model, portStub, openComponent, closeComponent, c, more, zapf, F, fmTempText, fmFlowText });
 
     /* ---------- Wärmequelle Sole / Wasser ---------- */
-    if (QS) {
-      o += openComponent('heat-source');
-      o += `<rect x="382" y="404" width="100" height="156" rx="4" fill="#6b4f3a" fill-opacity=".35"/><path d="M382 404H482" stroke="#4cb050" stroke-width="3"/>`;
-      if (QT === 'wasser') {
-        o += `<rect x="382" y="478" width="100" height="82" rx="4" fill="#3d8bff" fill-opacity=".25"/><path d="M382 478q6-4 12 0t12 0 12 0 12 0 12 0 12 0 12 0 12 0 4 0" fill="none" stroke="#3d8bff" stroke-opacity=".7" stroke-width="1.2"/>`;
-        o += `<rect x="391" y="408" width="18" height="140" rx="3" fill="none" stroke="#9aa0a6" stroke-opacity=".7"/><rect x="421" y="408" width="18" height="140" rx="3" fill="none" stroke="#9aa0a6" stroke-opacity=".7"/>`;
-      }
-      o += closeComponent('heat-source');
-      o += portStub(model.connections['source-in'].from) + portStub(model.connections['source-out'].to);
-      o += openComponent('heat-source');
-      if (W.quelle_ein) o += `<text x="444" y="426" font-size="8.5" class="wt wv wx" data-more="${esc(W.quelle_ein)}">↑ ${fmt(S(W.quelle_ein))}</text>`;
-      if (W.quelle_aus) o += `<text x="444" y="440" font-size="8.5" class="wt wv wx" data-more="${esc(W.quelle_aus)}">↓ ${fmt(S(W.quelle_aus))}</text>`;
-      o += closeComponent('heat-source');
-    }
+    o += renderHeatSource({ QS, QT, W, model, portStub, openComponent, closeComponent, S });
 
     /* ---------- Wärmepumpe ---------- */
-    if (WP) {
-      const b = model.components.wp, { x, y } = b.origin, { width, height } = b.bounds;
-      o += `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="14" fill="url(#wwRed)" filter="url(#wwShadow)"/><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="14" fill="url(#wwBox)"/>`;
-      o += portStub(model.connections['wp-upper-supply'].from) + portStub(model.connections['wp-lower-supply'].from) + portStub(model.connections['wp-valve-return'].to);
-      o += openComponent('wp');
-      o += `<text x="342" y="168" font-size="9" class="wt" letter-spacing="2" fill="#fff" opacity=".9">${esc(c.hersteller)}</text>`;
-      if (W.cop) o += `<text x="438" y="168" font-size="9" class="we wt wx" data-more="${esc(W.cop)}" fill="#fff">${wpCopText}</text>`;
-      o += `<circle cx="390" cy="226" r="42" fill="#15171b" stroke="#0c0d0f" stroke-width="3"/><circle cx="390" cy="226" r="36" fill="#1d2025"/>`;
-      const fan = wp_abtau ? F.kalt : wp_on ? (kuehl ? F.kalt : F.aktiv) : '#6b7280';
-      const dreht = wp_on || wp_abtau;
-      if (QT === 'luft') {
-        o += `<g fill="${fan}"${dreht ? ' class="wr"' : ''}${wp_abtau ? ' style="animation-duration:4s"' : ''}>` +
-          [0, 72, 144, 216, 288].map((a) => `<path d="M390 226Q405 213 397 192Q383 203 390 226Z" transform="rotate(${a} 390 226)"/>`).join('') + '</g>';
-        o += `<circle cx="390" cy="226" r="14" fill="none" stroke="#fff" stroke-opacity=".07"/><circle cx="390" cy="226" r="25" fill="none" stroke="#fff" stroke-opacity=".07"/>`;
-      } else {
-        o += `<g${dreht ? ' class="wr" style="animation-duration:3s"' : ''}><path d="M390 222a4 4 0 1 1-4 4a9 9 0 1 0 9-9a15 15 0 1 1-15 15a22 22 0 1 0 22-22" fill="none" stroke="${fan}" stroke-width="3.5" stroke-linecap="round"/></g>`;
-      }
-      o += `<circle cx="390" cy="226" r="7" fill="#2b2f35" stroke="#555b63" stroke-width="1.5"/>`;
-      const st = wpStatus;
-      o += `<g${more(W.leistung || W.betrieb || W.waerme)}><rect x="342" y="282" width="96" height="46" rx="8" fill="#0f1114" fill-opacity=".85" stroke="#fff" stroke-opacity=".08"/>`;
-      if (W.leistung) o += `<text x="390" y="305" font-size="17" class="wc wt" fill="${wp_on ? (kuehl ? F.kalt : F.aktiv) : '#e0e3e7'}">${wpPowerText}</text>`;
-      o += `<text x="390" y="${W.leistung ? 320 : 309}" font-size="${W.leistung ? 8.5 : 10}" class="wc" fill="${st[1]}">${esc(st[0])}</text></g>`;
-      const vr = wpTemperatures;
-      if (vr) o += `<text x="390" y="341" font-size="8.5" class="wc wx" data-more="${esc(W.vorlauf || W.ruecklauf)}" fill="#fff" opacity=".9">${vr}</text>`;
-      o += `<text x="342" y="364" font-size="20" font-weight="800" fill="#fff">${esc(c.name_wp)}</text>`;
-      if (W.sg_ready) o += `<text x="424" y="356" font-size="8" class="we wt wx" data-more="${esc(W.sg_ready)}" fill="#fff" opacity=".85">SG ${esc(S(W.sg_ready))}</text>`;
-      o += `<circle cx="434" cy="353" r="5" fill="${wp_sperre ? F.warm : wp_on ? F.led : '#4b5058'}" stroke="#fff" stroke-opacity=".35"${wp_on ? ' class="wb"' : ''}/>`;
-      if (QT === 'luft' && (W.quelle_ein || W.quelle_aus))
-        o += `<text x="390" y="382" font-size="8" class="wc wv wx" data-more="${esc(W.quelle_ein || W.quelle_aus)}">${L.luft} ${[W.quelle_ein ? fmt(S(W.quelle_ein)) : '', W.quelle_aus ? fmt(S(W.quelle_aus)) : ''].filter(Boolean).join(' → ')}</text>`;
-      o += closeComponent('wp');
-    }
+    o += renderHeatPump({ WP, W, model, portStub, openComponent, closeComponent, c, wpCopText, wp_abtau, F, wp_on, kuehl, QT, more, wpStatus, wpPowerText, wpTemperatures, S, L, wp_sperre });
     o += '</svg>';
 
     /* ---------- Tagesenergie ---------- */
